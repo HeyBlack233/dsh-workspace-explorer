@@ -38,6 +38,30 @@ test('static source: module id, slot ids, placeholders, imports', () => {
   assert.deepEqual(requires, ['react']);
 });
 
+test('static source: hint strings removed, hasMore and layout CSS kept', () => {
+  for (const gone of [
+    'Searching…',
+    'No results match your search.',
+    'No workspaces found.',
+    'No sessions found.',
+    'dwe-group-empty',
+  ]) {
+    assert.ok(!clientSource.includes(gone), `${gone} removed from client.js`);
+  }
+  assert.ok(clientSource.includes('search.hasMore'), 'search.hasMore hint kept');
+  for (const kept of [
+    'max-width: 960px',
+    'clamp(24px, 4vw, 48px)',
+    'height: 36px',
+    'border-radius: 12px',
+  ]) {
+    assert.ok(clientSource.includes(kept), `CSS contains ${kept}`);
+  }
+  assert.ok(clientSource.includes('SEARCH_DEBOUNCE_MS = 250'), '250 ms debounce kept');
+  assert.match(clientSource, /\.dwe-search-input:focus-visible\s*\{\s*outline:\s*none;\s*\}/, 'search input focus-visible outline disabled');
+  assert.ok(clientSource.includes('.dwe-search-clear:focus-visible'), 'clear button keeps its focus-visible outline');
+});
+
 test('static source: row elements carry list keys', () => {
   assert.match(clientSource, /h\(WorkspaceRow, \{ key: row\.workspaceId,/);
   assert.match(clientSource, /h\(SessionRow, \{ key: row\.id,/);

@@ -34,7 +34,9 @@ Release Date: TBD
 - Search box with a clear button, auto-focus on open, a 500-code-unit limit, and
   a placeholder of `Search sessions / workspaces` (Chinese: `搜索会话 / 工作区`).
 - Two collapsible result groups — **Workspaces** and **Sessions** — each showing
-  its result count; an expanded empty group shows a muted note, and a no-match
-  note appears when a query finds nothing.
+  its result count; an expanded empty group shows no note (the header still
+  shows its count), and no no-match hint is shown when a query finds nothing.
+- Page skeleton — column width, header/title/subtitle spacing, and the search
+  box — aligned with the built-in Plugins and Automation tasks pages.
 - English and Chinese UI strings, with the built-in sidebar search left
   unchanged.

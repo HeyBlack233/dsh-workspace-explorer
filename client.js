@@ -18,15 +18,11 @@ window.__ModuleLoader__.load({
       'page.subtitle': 'Search sessions and browse workspaces in one place.',
       'search.placeholder': 'Search sessions / workspaces',
       'search.clear': 'Clear search',
-      'search.searching': 'Searching…',
       'search.hasMore': 'Showing the first {limit} results. Narrow your search.',
       'group.workspaces': 'Workspaces',
       'group.sessions': 'Sessions',
       'group.ungrouped': 'Ungrouped',
       'group.count': '{count}',
-      'empty.workspaces': 'No workspaces found.',
-      'empty.sessions': 'No sessions found.',
-      'empty.noMatch': 'No results match your search.',
       'state.loading': 'Loading…',
       'row.openWorkspace': 'Open workspace {name}',
       'row.openSession': 'Open session {title}',
@@ -38,15 +34,11 @@ window.__ModuleLoader__.load({
       'page.subtitle': '在一个页面中搜索会话、浏览工作区。',
       'search.placeholder': '搜索会话 / 工作区',
       'search.clear': '清除搜索',
-      'search.searching': '搜索中…',
       'search.hasMore': '仅显示前 {limit} 条结果，请缩小搜索范围。',
       'group.workspaces': '工作区',
       'group.sessions': '会话',
       'group.ungrouped': '未分组',
       'group.count': '{count}',
-      'empty.workspaces': '没有找到工作区。',
-      'empty.sessions': '没有找到会话。',
-      'empty.noMatch': '没有与搜索匹配的结果。',
       'state.loading': '加载中…',
       'row.openWorkspace': '打开工作区 {name}',
       'row.openSession': '打开会话 {title}',
@@ -416,7 +408,6 @@ window.__ModuleLoader__.load({
       const content = remote.query === normalized
         ? { items: remote.items, hasMore: remote.hasMore }
         : { items: [], hasMore: false };
-      const searching = remote.query === normalized && remote.status === 'loading';
 
       // Locale labels resolved outside the memo so a language switch while the
       // page is open recomputes the view (labels are memo deps, not `t`).
@@ -451,14 +442,12 @@ window.__ModuleLoader__.load({
         {
           key: 'workspaces',
           label: t('group.workspaces'),
-          empty: t('empty.workspaces'),
           items: view.workspaces,
           renderRow: (row) => h(WorkspaceRow, { key: row.workspaceId, row, t, openSession, openWorkspace }),
         },
         {
           key: 'sessions',
           label: t('group.sessions'),
-          empty: t('empty.sessions'),
           items: view.sessions,
           renderRow: (row) => h(SessionRow, { key: row.id, row, t, openSession }),
         },
@@ -496,12 +485,6 @@ window.__ModuleLoader__.load({
               : null,
           ),
           h('div', { className: 'dwe-groups' },
-            searching
-              ? h('p', { role: 'status', className: 'dwe-status' }, t('search.searching'))
-              : null,
-            normalized !== '' && !searching && view.workspaces.length === 0 && view.sessions.length === 0
-              ? h('p', { className: 'dwe-status' }, t('empty.noMatch'))
-              : null,
             groups.map((group) => h(GroupSection, {
               key: group.key,
               group,
@@ -510,7 +493,7 @@ window.__ModuleLoader__.load({
               onToggle: () => toggleGroup(group.key),
               renderRow: group.renderRow,
             })),
-            view.hasMore && !searching
+            view.hasMore
               ? h('p', { className: 'dwe-status' }, t('search.hasMore', { limit: searchResultLimit }))
               : null,
           ),
@@ -544,11 +527,9 @@ window.__ModuleLoader__.load({
           h('span', { className: 'dwe-group-label' }, group.label),
           h('span', { className: 'dwe-group-count' }, t('group.count', { count })),
         ),
-        expanded
+        expanded && count > 0
           ? h('div', { className: 'dwe-group-body' },
-              count === 0
-                ? h('p', { className: 'dwe-group-empty' }, group.empty)
-                : h('ul', { className: 'dwe-group-list' }, group.items.map((item, index) => renderRow(item, index))),
+              h('ul', { className: 'dwe-group-list' }, group.items.map((item, index) => renderRow(item, index))),
             )
           : null,
       );
@@ -609,40 +590,52 @@ window.__ModuleLoader__.load({
         height: 100%;
         min-height: 0;
         overflow-y: auto;
-        padding-top: calc(28px + var(--dsh-frame-top-clearance, 0px));
-        padding-bottom: 48px;
+        padding: 0 clamp(24px, 4vw, 48px) 48px;
         color: var(--dsw-alias-label-primary, inherit);
         background: transparent;
       }
       .dwe-column {
         box-sizing: border-box;
         width: 100%;
-        max-width: 880px;
+        max-width: 960px;
         margin: 0 auto;
-        padding: 0 24px;
+        padding: 0;
       }
       .dwe-header {
-        margin: 0 0 20px;
+        padding-top: 28px;
+        margin: 0 0 24px;
+      }
+      [data-platform='darwin'] .dwe-header {
+        padding-top: calc(28px + var(--dsh-frame-top-clearance, 0px));
       }
       .dwe-title {
-        margin: 0 0 6px;
-        font: var(--dsw-font-xl-24);
+        margin: 0;
+        font-size: 20px;
+        font-weight: 500;
+        line-height: 28px;
         color: var(--dsw-alias-label-primary, inherit);
       }
       .dwe-subtitle {
-        margin: 0;
-        font: var(--dsw-font-base-16);
+        margin: 4px 0 0;
+        font-size: 13px;
+        line-height: 20px;
         color: var(--dsw-alias-label-secondary, inherit);
       }
       .dwe-search {
         display: flex;
         align-items: center;
         gap: 8px;
-        margin: 0 0 20px;
-        padding: 0 8px;
-        border: 1px solid var(--dsw-alias-border-l2, transparent);
-        border-radius: var(--dsw-radius-md, 8px);
-        background: var(--dsw-alias-bg-layer-1, transparent);
+        box-sizing: border-box;
+        height: 36px;
+        margin: 0 0 16px;
+        padding: 0 10px;
+        border: .5px solid var(--dsw-alias-border-l3, transparent);
+        border-radius: 12px;
+        background: transparent;
+        transition: border-color .15s;
+      }
+      .dwe-search:hover {
+        border-color: var(--dsw-alias-border-l2, transparent);
       }
       .dwe-search:focus-within {
         border-color: var(--dsw-alias-state-business-primary, transparent);
@@ -657,7 +650,8 @@ window.__ModuleLoader__.load({
         flex: 1 1 auto;
         min-width: 0;
         box-sizing: border-box;
-        padding: 9px 0;
+        height: 100%;
+        padding: 0;
         border: none;
         outline: none;
         background: transparent;
@@ -673,8 +667,9 @@ window.__ModuleLoader__.load({
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 22px;
-        height: 22px;
+        width: 28px;
+        height: 28px;
+        margin-right: -6px;
         padding: 0;
         border: none;
         border-radius: var(--dsw-radius-sm, 4px);
@@ -741,11 +736,6 @@ window.__ModuleLoader__.load({
       .dwe-group-body {
         padding: 0 4px 14px;
       }
-      .dwe-group-empty {
-        margin: 0;
-        font: var(--dsw-font-s-14);
-        color: var(--dsw-alias-label-tertiary, currentColor);
-      }
       .dwe-group-list {
         display: flex;
         flex-direction: column;
@@ -810,7 +800,9 @@ window.__ModuleLoader__.load({
         font: var(--dsw-font-xxs-12);
         color: var(--dsw-alias-label-tertiary, currentColor);
       }
-      .dwe-search-input:focus-visible,
+      .dwe-search-input:focus-visible {
+        outline: none;
+      }
       .dwe-search-clear:focus-visible,
       .dwe-group-header:focus-visible,
       .dwe-row-button:focus-visible {
