@@ -768,8 +768,8 @@ window.__ModuleLoader__.load({
       .dwe-row-glyph {
         flex: none;
         display: flex;
+        align-self: center;
         align-items: center;
-        margin-top: 1px;
         color: var(--dsw-alias-label-tertiary, currentColor);
       }
       .dwe-row-text {

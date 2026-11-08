@@ -38,5 +38,6 @@ Release Date: TBD
   shows its count), and no no-match hint is shown when a query finds nothing.
 - Page skeleton — column width, header/title/subtitle spacing, and the search
   box — aligned with the built-in Plugins and Automation tasks pages.
+- Workspace and Session row icons are vertically centered within each entry.
 - English and Chinese UI strings, with the built-in sidebar search left
   unchanged.
