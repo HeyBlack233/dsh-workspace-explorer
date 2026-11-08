@@ -31,8 +31,8 @@ test('static source: module id, slot ids, placeholders, imports', () => {
   assert.match(clientSource, /sidebar\.panellist/);
   assert.match(clientSource, /name: ['"]main['"]/);
   assert.match(clientSource, /key: PANEL_ID/);
-  assert.ok(clientSource.includes('Search sessions / workspaces'), 'en placeholder');
-  assert.ok(clientSource.includes('搜索会话 / 工作区'), 'zh placeholder');
+  assert.ok(clientSource.includes('Search workspaces / sessions'), 'en placeholder');
+  assert.ok(clientSource.includes('搜索工作区 / 会话'), 'zh placeholder');
   assert.ok(!clientSource.includes('@deepseek-ai'), 'no @deepseek-ai imports');
   const requires = [...clientSource.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]);
   assert.deepEqual(requires, ['react']);
@@ -106,8 +106,8 @@ test('en/zh dictionaries have identical keys and the required new keys', () => {
   assert.ok(en['search.hasMore'].includes('{limit}'));
   assert.equal(en['group.count'], '{count}', 'count pill is a bare number');
   assert.equal(zh['group.count'], '{count}');
-  assert.equal(en['search.placeholder'], 'Search sessions / workspaces');
-  assert.equal(zh['search.placeholder'], '搜索会话 / 工作区');
+  assert.equal(en['search.placeholder'], 'Search workspaces / sessions');
+  assert.equal(zh['search.placeholder'], '搜索工作区 / 会话');
 });
 
 test('__test exposes the pure helpers as functions', () => {

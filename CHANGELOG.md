@@ -32,7 +32,7 @@ Release Date: TBD
 - Clicking a Workspace opens its top pinned or most recent Session, or opens a
   new Session in that Workspace when it has none; clicking a Session opens it.
 - Search box with a clear button, auto-focus on open, a 500-code-unit limit, and
-  a placeholder of `Search sessions / workspaces` (Chinese: `搜索会话 / 工作区`).
+  a placeholder of `Search workspaces / sessions` (Chinese: `搜索工作区 / 会话`).
 - Two collapsible result groups — **Workspaces** and **Sessions** — each showing
   its result count; an expanded empty group shows no note (the header still
   shows its count), and no no-match hint is shown when a query finds nothing.
