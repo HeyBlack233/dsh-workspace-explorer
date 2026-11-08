@@ -32,7 +32,10 @@ without a stored title are shown as **Untitled** and can still be found through
 content search.
 
 Clicking a Workspace opens its top pinned or most recent Session, or opens a new
-Session in that Workspace when it has none. Clicking a Session opens it.
+Session in that Workspace when it has none. Clicking a Session opens it. In
+either case the native workspace sidebar reveals the owning Workspace group
+(including its ancestors in the Workspace-tree layout) and scrolls the target
+Session row (or the Workspace row for a newly created Session) into view.
 
 ## Requirement
 

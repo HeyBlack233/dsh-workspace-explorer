@@ -31,6 +31,10 @@ Release Date: TBD
   in the Sessions group.
 - Clicking a Workspace opens its top pinned or most recent Session, or opens a
   new Session in that Workspace when it has none; clicking a Session opens it.
+  The native workspace sidebar expands the owning Workspace group — including
+  its ancestors in the Workspace-tree layout — and scrolls the target Session
+  row (or the Workspace row for a newly created Session) into view, matching
+  the built-in search's reveal behavior.
 - Search box with a clear button, auto-focus on open, a 500-code-unit limit, and
   a placeholder of `Search workspaces / sessions` (Chinese: `搜索工作区 / 会话`).
 - Two collapsible result groups — **Workspaces** and **Sessions** — each showing

@@ -114,7 +114,9 @@ test('__test exposes the pure helpers as functions', () => {
   for (const name of [
     'sanitizeQuery', 'deriveView', 'selectTopSessionId', 'recentSessions',
     'mergeSessionResults', 'localSessionMatches', 'nextExpansion', 'resolveExpanded',
-    'sessionMatchTitle', 'sessionDisplayTitle',
+    'sessionMatchTitle', 'sessionDisplayTitle', 'owningWorkspace', 'owningParentFolder',
+    'groupKeysForWorkspace', 'groupKeysForSession', 'sidebarViewActions',
+    'expandWorkspaceGroups', 'revealSidebarRow', 'currentMainSessionId',
   ]) {
     assert.equal(typeof mod.__test[name], 'function', `${name} is a function`);
   }
@@ -243,6 +245,9 @@ test('deriveView: workspace labels and ungrouped/cwd fallbacks', () => {
   assert.equal(view.sessions[0].workspaceLabel, 'Alpha Workspace', 'owning workspace title wins');
   assert.equal(view.sessions[2].workspaceLabel, 'beta', 'basename of cwd-less workspace path');
   assert.equal(view.sessions[3].workspaceLabel, 'alpha', 'cwd basename fallback');
+  assert.deepEqual(view.workspaces[0].groupKeys, ['w1'], 'workspace row carries its group key');
+  assert.deepEqual(view.sessions[0].groupKeys, ['w1'], 'owned session carries its workspace key');
+  assert.deepEqual(view.sessions[3].groupKeys, [''], 'ungrouped session targets the Ungrouped group');
   const lone = { ids: ['l1', 'l2'], byId: {
     l1: { id: 'l1', title: 'Lone', blank: false, updatedAt: 2 },
     l2: { id: 'l2', title: 'Cwd', cwd: '/foo/bar', blank: false, updatedAt: 1 },
@@ -421,4 +426,119 @@ test('resolveExpanded: explicit toggles win, absent keys follow auto', () => {
     { workspaces: false, sessions: false }, 'both toggled off');
   assert.deepEqual(resolveExpanded({ other: { workspaces: false } }, 'q', auto),
     { workspaces: true, sessions: true }, 'overrides for another query do not apply');
+});
+
+// ---------------------------------------------------------------------------
+// Native sidebar reveal
+// ---------------------------------------------------------------------------
+
+test('groupKeysForWorkspace: own key first, then nearest registered ancestor chain', () => {
+  const nested = {
+    items: [
+      { workspaceId: 'w1', path: '/work/alpha', title: 'Alpha', sessionIds: [] },
+      { workspaceId: 'w2', path: '/work/alpha/nested/deep', title: 'Deep', sessionIds: [] },
+      { workspaceId: 'w3', path: '/work/alpha/nested', title: 'Nested', sessionIds: [] },
+      { workspaceId: 'w4', path: '/work/beta', title: 'Beta', sessionIds: [] },
+    ],
+  };
+  assert.deepEqual(mod.__test.groupKeysForWorkspace(nested.items[3], nested.items), ['w4']);
+  assert.deepEqual(mod.__test.groupKeysForWorkspace(nested.items[2], nested.items), ['w3', 'w1']);
+  assert.deepEqual(mod.__test.groupKeysForWorkspace(nested.items[1], nested.items), ['w2', 'w3', 'w1'],
+    'longest ancestor wins and the chain walks upward');
+});
+
+test('owningParentFolder: path prefix, separators, and self exclusion', () => {
+  const { owningParentFolder } = mod.__test;
+  assert.equal(owningParentFolder('/a/b/c', ['/a', '/a/b']), '/a/b');
+  assert.equal(owningParentFolder('/a/b', ['/a/b']), undefined, 'self is not its own parent');
+  assert.equal(owningParentFolder('/a/bc', ['/a/b']), undefined, 'prefix must end at a separator');
+  assert.equal(owningParentFolder('C:\\work\\repo', ['C:\\work']), 'C:\\work', 'Windows separators normalize');
+  assert.equal(owningParentFolder('/dist/repo', ['/dist', '/dist/repo/src']), '/dist');
+});
+
+test('groupKeysForSession: first owning workspace, Ungrouped fallback', () => {
+  const workspacesWithOverlap = {
+    items: [
+      { workspaceId: 'w1', path: '/work/a', title: 'A', sessionIds: ['s1'] },
+      { workspaceId: 'w2', path: '/work/b', title: 'B', sessionIds: ['s1'] },
+    ],
+  };
+  assert.deepEqual(mod.__test.groupKeysForSession({ id: 's1' }, workspacesWithOverlap.items), ['w1'],
+    'first owning workspace matches native first-wins');
+  assert.deepEqual(mod.__test.groupKeysForSession({ id: 's2' }, workspacesWithOverlap.items), ['']);
+});
+
+test('expandWorkspaceGroups: resolves the native browser store and writes every key', () => {
+  const calls = [];
+  const actions = { setGroupExpanded: (key, expanded) => calls.push([key, expanded]) };
+  const slots = { entries: (key) => (key === 'sidebar.workspaces'
+    ? [{ store: { create: () => ({ actions }) } }]
+    : []) };
+  assert.equal(mod.__test.expandWorkspaceGroups(slots, ['w2', 'w1']), true);
+  assert.deepEqual(calls, [['w2', true], ['w1', true]]);
+  assert.equal(mod.__test.expandWorkspaceGroups({ entries: () => [] }, ['w2']), false);
+  assert.equal(mod.__test.expandWorkspaceGroups({ entries: () => { throw new Error('missing'); } }, ['w2']), false,
+    'slot lookup failures degrade to no-op');
+  assert.equal(mod.__test.expandWorkspaceGroups({ entries: () => [{ store: {} }] }, ['w2']), false,
+    'an unrelated store does not fabricate an action');
+});
+
+test('revealSidebarRow: scrolls the first matching native row key', () => {
+  const scrolled = [];
+  const makeRow = (key) => ({
+    getAttribute: (name) => (name === 'data-row-key' ? key : null),
+    scrollIntoView: (options) => scrolled.push(options),
+  });
+  const doc = { querySelectorAll: () => [makeRow('workspace:w1'), makeRow('session:s2')] };
+  assert.equal(mod.__test.revealSidebarRow(doc, ['session:s2']), true);
+  assert.deepEqual(scrolled, [{ block: 'nearest' }]);
+  assert.equal(mod.__test.revealSidebarRow(doc, ['session:nope']), false);
+  assert.equal(mod.__test.revealSidebarRow({ querySelectorAll: () => { throw new Error('dom'); } }, ['session:s2']), false,
+    'DOM lookup failures degrade to no-op');
+});
+
+test('currentMainSessionId: retained main-view Session only', () => {
+  assert.equal(mod.__test.currentMainSessionId({
+    byId: {
+      a: { id: 'a', retainedBy: { mainView: 1 } },
+      b: { id: 'b', retainedBy: {} },
+    },
+  }), 'a');
+  assert.equal(mod.__test.currentMainSessionId({ byId: {} }), undefined);
+  assert.equal(mod.__test.currentMainSessionId(undefined), undefined);
+});
+
+test('apply: opening from the explorer expands groups then delegates navigation', async () => {
+  const registered = {};
+  const expanded = [];
+  const opens = [];
+  const slots = {
+    entries: (key) => (key === 'sidebar.workspaces'
+      ? [{ store: { create: () => ({ actions: { setGroupExpanded: (key, value) => expanded.push([key, value]) } }) } }]
+      : []),
+    inject: (key, callback) => { callback(); return () => {}; },
+    register: (options, component) => { registered[options.name] = { options, component }; return () => {}; },
+  };
+  const ctx = {
+    effect: (callback) => callback(),
+    locale: { bind: () => (key) => key, register: () => () => {} },
+    slots,
+    sessions: {
+      search: async () => ({ ok: true, value: { items: [], hasMore: false } }),
+      searchResultLimit: 20,
+      list: { getSnapshot: () => ({ byId: {} }) },
+    },
+    uiWorkspace: {
+      openSession: (sessionId) => opens.push(['session', sessionId]),
+      openWorkspace: async (workspaceId) => { opens.push(['workspace', workspaceId]); },
+    },
+  };
+  mod.apply(ctx);
+  const face = registered.main.options.inject();
+  face.openSession('s1', ['w2', 'w1']);
+  assert.deepEqual(expanded, [['w2', true], ['w1', true]], 'all group keys expanded first');
+  assert.deepEqual(opens[0], ['session', 's1']);
+  await face.openWorkspace('w3', ['w3']);
+  assert.deepEqual(expanded.slice(2), [['w3', true]], 'workspace open expands its own key');
+  assert.deepEqual(opens[1], ['workspace', 'w3']);
 });

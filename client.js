@@ -179,12 +179,74 @@ window.__ModuleLoader__.load({
       return members[0].id;
     }
 
+    /** First Workspace owning the Session, matching the native sidebar's first-wins rule. */
+    function owningWorkspace(session, workspaces) {
+      return (workspaces ?? []).find((workspace) => workspace.sessionIds.includes(session.id));
+    }
+
+    /** Normalize separators for path comparison without treating POSIX backslashes as separators. */
+    function folderPath(path) {
+      if (typeof path !== 'string') return '';
+      return (/^[A-Za-z]:[/\\]/.test(path) || path.startsWith('\\\\')
+        ? path.replaceAll('\\', '/')
+        : path).replace(/\/+$/, '');
+    }
+
+    /**
+     * Nearest registered ancestor directory of a Workspace, excluding itself:
+     * the longest other Workspace path that is its prefix, in Host spelling.
+     */
+    function owningParentFolder(path, parents) {
+      const child = folderPath(path);
+      let owner;
+      let length = -1;
+      for (const parent of parents) {
+        const root = folderPath(parent);
+        if (root.length > length && child !== root && child.startsWith(`${root}/`)) {
+          owner = parent;
+          length = root.length;
+        }
+      }
+      return owner;
+    }
+
+    /**
+     * Native sidebar group keys to expand for one Workspace: itself first,
+     * then its ancestors for the Workspace-tree grouping mode. Sibling
+     * grouping ignores the extra keys, so callers need not know the mode.
+     */
+    function groupKeysForWorkspace(workspace, workspaces) {
+      const items = workspaces ?? [];
+      const keys = [workspace.workspaceId];
+      const seen = new Set(keys);
+      const paths = items
+        .map((item) => item.path)
+        .filter((path) => typeof path === 'string' && path !== '');
+      let current = workspace;
+      while (true) {
+        const parentPath = owningParentFolder(current.path, paths);
+        if (parentPath === undefined) break;
+        const parent = items.find((item) => item.path === parentPath);
+        if (parent === undefined || seen.has(parent.workspaceId)) break;
+        keys.push(parent.workspaceId);
+        seen.add(parent.workspaceId);
+        current = parent;
+      }
+      return keys;
+    }
+
+    /** Native sidebar group keys for a Session: its owning Workspace chain, else Ungrouped (''). */
+    function groupKeysForSession(session, workspaces) {
+      const owner = owningWorkspace(session, workspaces);
+      return owner === undefined ? [''] : groupKeysForWorkspace(owner, workspaces);
+    }
+
     /**
      * Row label for a Session: the title of the owning Workspace (first
      * workspace wins), else the basename of its cwd, else the ungrouped label.
      */
     function labelForSession(session, workspaces, ungroupedLabel) {
-      const owner = (workspaces ?? []).find((workspace) => workspace.sessionIds.includes(session.id));
+      const owner = owningWorkspace(session, workspaces);
       if (owner !== undefined) return workspaceName(owner);
       if (session.cwd !== undefined && session.cwd !== '') {
         const base = basename(session.cwd);
@@ -209,6 +271,7 @@ window.__ModuleLoader__.load({
         workspaceId: workspace.workspaceId,
         title: workspaceName(workspace),
         path: workspace.path,
+        groupKeys: groupKeysForWorkspace(workspace, items),
         topSessionId: selectTopSessionId(workspace, list, pinnedSessionIds, archivedSessionIds),
       }));
 
@@ -216,6 +279,7 @@ window.__ModuleLoader__.load({
         id: summary.id,
         title: sessionDisplayTitle(summary, untitledLabel),
         workspaceLabel: labelForSession(summary, items, ungroupedLabel),
+        groupKeys: groupKeysForSession(summary, items),
         ...(summary.snippet !== undefined ? { snippet: summary.snippet } : {}),
         updatedAt: summary.updatedAt,
       }));
@@ -259,6 +323,88 @@ window.__ModuleLoader__.load({
      */
     function resolveExpanded(overrides, queryKey, autoExpanded) {
       return { ...autoExpanded, ...(overrides[queryKey] ?? {}) };
+    }
+
+    /**
+     * The native Workspace browser's viewing-store actions, reached through
+     * the `sidebar.workspaces` registration. Its store is the registration's
+     * own handle (windowed here as the same shared instance), so expanding a
+     * group updates the native sidebar rather than persisting it separately.
+     * Ambiguity or absence degrades to no-op instead of breaking navigation.
+     */
+    function sidebarViewActions(slots) {
+      let entries;
+      try {
+        // Prefer the rendering winners (the entry the outlet actually displays) over
+        // shadowed registrations; entries() is the fallback on older slot layers.
+        entries = typeof slots.entriesOfSlot === 'function'
+          ? slots.entriesOfSlot('sidebar.workspaces')
+          : slots.entries('sidebar.workspaces');
+      } catch {
+        return undefined;
+      }
+      for (const entry of entries ?? []) {
+        const handle = entry?.store;
+        if (handle === undefined || handle === null) continue;
+        const view = typeof handle.create === 'function' ? handle.create() : handle;
+        const actions = view?.actions;
+        if (typeof actions?.setGroupExpanded === 'function') return actions;
+      }
+      return undefined;
+    }
+
+    /** Expand every native sidebar group key in order; returns false when the slot is unavailable. */
+    function expandWorkspaceGroups(slots, groupKeys) {
+      const actions = sidebarViewActions(slots);
+      if (actions === undefined) return false;
+      for (const key of groupKeys ?? []) {
+        if (typeof key === 'string') actions.setGroupExpanded(key, true);
+      }
+      return true;
+    }
+
+    /** Scroll the first visible native sidebar row whose `data-row-key` is one of `rowKeys`. */
+    function revealSidebarRow(doc, rowKeys) {
+      if (doc === undefined || doc === null || typeof doc.querySelectorAll !== 'function') return false;
+      let rows;
+      try {
+        rows = doc.querySelectorAll('[data-row-key]');
+      } catch {
+        return false;
+      }
+      for (const key of rowKeys ?? []) {
+        for (const row of rows ?? []) {
+          if (typeof row?.getAttribute !== 'function' || row.getAttribute('data-row-key') !== key) continue;
+          if (typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /**
+     * After one navigation, wait for the native sidebar to render the expanded
+     * group and scroll its row into view. Retries a few frames because the
+     * store write, the sidebar render, and an asynchronous Session creation
+     * settle on different ticks.
+     */
+    function scheduleSidebarRowReveal(rowKeys) {
+      if (typeof window === 'undefined' || typeof document === 'undefined') return;
+      let attempts = 0;
+      const tryReveal = () => {
+        if (revealSidebarRow(document, rowKeys)) return;
+        attempts++;
+        if (attempts >= 10) return;
+        if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(tryReveal);
+        else window.setTimeout(tryReveal, 16);
+      };
+      if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(tryReveal);
+      else window.setTimeout(tryReveal, 0);
+    }
+
+    /** Current main-view Session id from a Session list snapshot, or undefined. */
+    function currentMainSessionId(list) {
+      return Object.values(list?.byId ?? {}).find((summary) => (summary?.retainedBy?.mainView ?? 0) > 0)?.id;
     }
 
     // ---------------------------------------------------------------------
@@ -536,11 +682,12 @@ window.__ModuleLoader__.load({
     }
 
     // A Workspace row: clicking opens its top pinned/recent Session, or a new
-    // Session in the Workspace when it has none.
+    // Session in the Workspace when it has none. `groupKeys` makes the native
+    // sidebar reveal the owning Workspace before the Session appears.
     function WorkspaceRow({ row, t, openSession, openWorkspace }) {
       const onClick = () => {
-        if (row.topSessionId !== undefined) openSession(row.topSessionId);
-        else openWorkspace(row.workspaceId);
+        if (row.topSessionId !== undefined) openSession(row.topSessionId, row.groupKeys);
+        else openWorkspace(row.workspaceId, row.groupKeys);
       };
       return h('li', { className: 'dwe-row' },
         h('button', {
@@ -567,7 +714,7 @@ window.__ModuleLoader__.load({
           className: 'dwe-row-button',
           title: row.title,
           'aria-label': t('row.openSession', { title: row.title }),
-          onClick: () => openSession(row.id),
+          onClick: () => openSession(row.id, row.groupKeys),
         },
           h('span', { className: 'dwe-row-glyph', 'aria-hidden': true }, chatGlyph),
           h('span', { className: 'dwe-row-text' },
@@ -837,10 +984,22 @@ window.__ModuleLoader__.load({
             return result.value; // { items: { sessionId, snippet }[], hasMore: boolean }
           },
           searchResultLimit: ctx.sessions.searchResultLimit, // 20
-          openSession: (sessionId) => ctx.uiWorkspace.openSession(sessionId),
-          openWorkspace: (workspaceId) => {
+          openSession: (sessionId, groupKeys) => {
+            expandWorkspaceGroups(ctx.slots, groupKeys);
+            ctx.uiWorkspace.openSession(sessionId);
+            scheduleSidebarRowReveal([`session:${sessionId}`, ...(groupKeys?.[0] ? [`workspace:${groupKeys[0]}`] : [])]);
+          },
+          openWorkspace: (workspaceId, groupKeys) => {
+            expandWorkspaceGroups(ctx.slots, groupKeys ?? [workspaceId]);
+            const before = currentMainSessionId(ctx.sessions.list.getSnapshot());
             // fire-and-forget: the service already shows a create-failure notice
-            Promise.resolve(ctx.uiWorkspace.openWorkspace(workspaceId)).catch((reason) =>
+            Promise.resolve(ctx.uiWorkspace.openWorkspace(workspaceId)).then(() => {
+              const after = currentMainSessionId(ctx.sessions.list.getSnapshot());
+              scheduleSidebarRowReveal([
+                ...(after === undefined || after === before ? [] : [`session:${after}`]),
+                `workspace:${workspaceId}`,
+              ]);
+            }).catch((reason) =>
               console.warn('workspace explorer: open workspace failed', reason));
           },
         }),
@@ -864,6 +1023,14 @@ window.__ModuleLoader__.load({
         deriveView,
         nextExpansion,
         resolveExpanded,
+        owningWorkspace,
+        owningParentFolder,
+        groupKeysForWorkspace,
+        groupKeysForSession,
+        sidebarViewActions,
+        expandWorkspaceGroups,
+        revealSidebarRow,
+        currentMainSessionId,
         locales: { en, zh },
       },
     };
