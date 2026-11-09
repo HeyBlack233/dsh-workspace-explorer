@@ -56,3 +56,7 @@ pnpm 会从 GitHub 拉取并安装该包，DSH 会把它的捆绑包加入 profi
 - `locale/en.json`、`locale/zh.json` — 插件管理器元数据
 - `icon.svg` — 侧边栏图标素材
 - `cordis.patch.yml` — 图层栈补丁
+
+## 许可证
+
+[MIT](LICENSE)

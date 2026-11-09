@@ -67,3 +67,7 @@ DSH Web (or let its HMR watcher reload) to pick up the new bundle.
 - `locale/en.json`, `locale/zh.json` — plugin-manager metadata
 - `icon.svg` — sidebar icon artwork
 - `cordis.patch.yml` — layer-stack patch
+
+## License
+
+[MIT](LICENSE)

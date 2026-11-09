@@ -45,3 +45,4 @@ Release Date: TBD
 - Workspace and Session row icons are vertically centered within each entry.
 - English and Chinese UI strings, with the built-in sidebar search left
   unchanged.
+- Released under the MIT License (© 2026 HeyBlack233).
