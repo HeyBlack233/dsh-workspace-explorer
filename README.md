@@ -37,6 +37,14 @@ either case the native workspace sidebar reveals the owning Workspace group
 (including its ancestors in the Workspace-tree layout) and scrolls the target
 Session row (or the Workspace row for a newly created Session) into view.
 
+Every Workspace row also carries the same two trailing actions as the native
+sidebar, always visible:
+
+- an **ellipsis** that opens the native Workspace context menu (rename, delete,
+  and any other registered Workspace actions) anchored below the button;
+- a **New Session** button that starts a Session in that Workspace, expands the
+  native Workspace group, and returns to the conversation view.
+
 ## Requirement
 
 - DSH Web with bundled client plugins enabled (the client module is loaded by

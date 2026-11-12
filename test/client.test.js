@@ -21,7 +21,7 @@ const clientSource = readFileSync(path.join(root, 'client.js'), 'utf8');
 // ---------------------------------------------------------------------------
 
 test('module registers the expected inject array and apply', () => {
-  assert.deepEqual(mod.inject, ['slots', 'locale', 'sessions', 'uiWorkspace']);
+  assert.deepEqual(mod.inject, ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus']);
   assert.equal(typeof mod.apply, 'function');
   assert.ok(mod.__test, '__test export present');
 });
@@ -67,12 +67,28 @@ test('static source: row elements carry list keys', () => {
   assert.match(clientSource, /h\(SessionRow, \{ key: row\.id,/);
 });
 
+test('static source: workspace row actions and their labels are present', () => {
+  assert.ok(clientSource.includes('dwe-row-actions'), 'row actions container class present');
+  assert.ok(clientSource.includes('dwe-row-action'), 'row action button class present');
+  assert.ok(clientSource.includes('row.workspaceMenu'), 'workspace menu label key used');
+  assert.ok(clientSource.includes('row.newSession'), 'new session label key used');
+  assert.ok(clientSource.includes('ellipsisGlyph'), 'ellipsis glyph defined');
+  assert.ok(clientSource.includes('newChatGlyph'), 'new chat glyph defined');
+  assert.ok(clientSource.includes('aria-haspopup'), 'menu button declares a popup');
+  assert.ok(clientSource.includes('data-context-menu-trigger'), 'menu button is recognized by the shared menu');
+  assert.ok(clientSource.includes('dwe-row-with-actions'), 'action rows use the full-width hover surface');
+  assert.ok(clientSource.includes('.dwe-row-main'), 'the main row control has its own class');
+  assert.ok(!clientSource.includes('dwe-row-button'), 'the main control avoids the generic glass button selector');
+  assert.ok(clientSource.includes('[data-dsh-glass-float] .dwe-row:hover'), 'the glass hover halo belongs to the whole row');
+});
+
 test('package.json: version, bundle patch, client flags, no dependencies, scripts', () => {
   const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.equal(pkg.version, '0.0.0');
   assert.equal(pkg.dsh.bundle.patch, './cordis.patch.yml');
   assert.equal(pkg.dsh.client.platform, 'web');
   assert.equal(pkg.dsh.client.immediately, true);
+  assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-context-menu'), 'context menu client injected');
   for (const key of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
     assert.equal(pkg[key], undefined, `no ${key}`);
   }
@@ -97,12 +113,16 @@ test('cordis.patch.yml contains the plugin row id/name', () => {
 test('en/zh dictionaries have identical keys and the required new keys', () => {
   const { en, zh } = mod.__test.locales;
   assert.deepEqual(Object.keys(en).sort(), Object.keys(zh).sort());
-  for (const key of ['group.ungrouped', 'row.openWorkspace', 'row.openSession', 'search.hasMore', 'session.untitled']) {
+  for (const key of ['group.ungrouped', 'row.openWorkspace', 'row.openSession', 'row.workspaceMenu', 'row.newSession', 'search.hasMore', 'session.untitled']) {
     assert.ok(key in en, `en has ${key}`);
     assert.ok(key in zh, `zh has ${key}`);
   }
   assert.ok(en['row.openWorkspace'].includes('{name}'));
   assert.ok(en['row.openSession'].includes('{title}'));
+  assert.ok(en['row.workspaceMenu'].includes('{name}'), 'en workspace menu label carries {name}');
+  assert.ok(zh['row.workspaceMenu'].includes('{name}'), 'zh workspace menu label carries {name}');
+  assert.ok(en['row.newSession'].includes('{name}'), 'en new session label carries {name}');
+  assert.ok(zh['row.newSession'].includes('{name}'), 'zh new session label carries {name}');
   assert.ok(en['search.hasMore'].includes('{limit}'));
   assert.equal(en['group.count'], '{count}', 'count pill is a bare number');
   assert.equal(zh['group.count'], '{count}');
@@ -116,10 +136,23 @@ test('__test exposes the pure helpers as functions', () => {
     'mergeSessionResults', 'localSessionMatches', 'nextExpansion', 'resolveExpanded',
     'sessionMatchTitle', 'sessionDisplayTitle', 'owningWorkspace', 'owningParentFolder',
     'groupKeysForWorkspace', 'groupKeysForSession', 'sidebarViewActions',
-    'expandWorkspaceGroups', 'revealSidebarRow', 'currentMainSessionId',
+    'expandWorkspaceGroups', 'revealSidebarRow', 'currentMainSessionId', 'workspaceMenuTarget',
   ]) {
     assert.equal(typeof mod.__test[name], 'function', `${name} is a function`);
   }
+});
+
+test('workspaceMenuTarget: builds the native workspace context-menu target', () => {
+  const { workspaceMenuTarget } = mod.__test;
+  assert.deepEqual(workspaceMenuTarget('w3', '/work/gamma', 'Gamma Workspace'), {
+    kind: 'workspace',
+    value: { workspaceId: 'w3', path: '/work/gamma', displayTitle: 'Gamma Workspace' },
+  });
+  const target = workspaceMenuTarget('w1', '/work/alpha', 'Alpha');
+  assert.equal(target.kind, 'workspace');
+  assert.equal(target.value.workspaceId, 'w1');
+  assert.equal(target.value.path, '/work/alpha');
+  assert.equal(target.value.displayTitle, 'Alpha');
 });
 
 // ---------------------------------------------------------------------------
@@ -512,6 +545,9 @@ test('apply: opening from the explorer expands groups then delegates navigation'
   const registered = {};
   const expanded = [];
   const opens = [];
+  const starts = [];
+  const menus = [];
+  const closes = [];
   const slots = {
     entries: (key) => (key === 'sidebar.workspaces'
       ? [{ store: { create: () => ({ actions: { setGroupExpanded: (key, value) => expanded.push([key, value]) } }) } }]
@@ -531,6 +567,12 @@ test('apply: opening from the explorer expands groups then delegates navigation'
     uiWorkspace: {
       openSession: (sessionId) => opens.push(['session', sessionId]),
       openWorkspace: async (workspaceId) => { opens.push(['workspace', workspaceId]); },
+      startSession: (workspaceId) => starts.push(workspaceId),
+    },
+    contextMenus: {
+      active: { subscribe: () => () => {}, getSnapshot: () => null },
+      open: (target, point, options) => menus.push({ target, point, options }),
+      close: () => closes.push(true),
     },
   };
   mod.apply(ctx);
@@ -541,4 +583,23 @@ test('apply: opening from the explorer expands groups then delegates navigation'
   await face.openWorkspace('w3', ['w3']);
   assert.deepEqual(expanded.slice(2), [['w3', true]], 'workspace open expands its own key');
   assert.deepEqual(opens[1], ['workspace', 'w3']);
+
+  // New-session face: expand the group first, then delegate to the service.
+  face.startSession('w3', ['w3']);
+  assert.deepEqual(expanded.slice(3), [['w3', true]], 'startSession expands the workspace group first');
+  assert.deepEqual(starts, ['w3'], 'startSession delegates to uiWorkspace.startSession');
+  await Promise.resolve();
+  assert.equal(expanded.length, 4, 'startSession reveal adds no extra expansion');
+
+  // Workspace menu face: opens with the native target, point, and button id.
+  face.openWorkspaceMenu('w3', '/work/gamma', 'Gamma Workspace', { x: 10, y: 20 }, 'btn');
+  assert.equal(menus.length, 1);
+  assert.deepEqual(menus[0].target, {
+    kind: 'workspace',
+    value: { workspaceId: 'w3', path: '/work/gamma', displayTitle: 'Gamma Workspace' },
+  });
+  assert.deepEqual(menus[0].point, { x: 10, y: 20 });
+  assert.deepEqual(menus[0].options, { button: 'btn' });
+  face.closeWorkspaceMenu();
+  assert.equal(closes.length, 1, 'closeWorkspaceMenu delegates to contextMenus.close');
 });

@@ -35,6 +35,14 @@ Release Date: TBD
   its ancestors in the Workspace-tree layout — and scrolls the target Session
   row (or the Workspace row for a newly created Session) into view, matching
   the built-in search's reveal behavior.
+- Every Workspace row carries the same two trailing actions as the native
+  sidebar, always visible: an ellipsis that opens the native Workspace context
+  menu (rename, delete, and any other registered Workspace actions) at the
+  button's anchor, and a New Session button that starts a Session in that
+  Workspace, expands the native Workspace group, and returns to the
+  conversation view. The New Session button honors the Workspace's
+  `session/create` access. The trailing actions share the row's full-width
+  hover surface, so the row highlights as one unit.
 - Search box with a clear button, auto-focus on open, a 500-code-unit limit, and
   a placeholder of `Search workspaces / sessions` (Chinese: `搜索工作区 / 会话`).
 - Two collapsible result groups — **Workspaces** and **Sessions** — each showing

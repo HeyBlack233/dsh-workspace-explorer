@@ -26,6 +26,8 @@ window.__ModuleLoader__.load({
       'state.loading': 'Loading…',
       'row.openWorkspace': 'Open workspace {name}',
       'row.openSession': 'Open session {title}',
+      'row.workspaceMenu': 'Workspace actions for {name}',
+      'row.newSession': 'New session in {name}',
       'session.untitled': 'Untitled',
     };
     const zh = {
@@ -42,6 +44,8 @@ window.__ModuleLoader__.load({
       'state.loading': '加载中…',
       'row.openWorkspace': '打开工作区 {name}',
       'row.openSession': '打开会话 {title}',
+      'row.workspaceMenu': '工作区 {name} 的操作',
+      'row.newSession': '在 {name} 中新建会话',
       'session.untitled': '未命名',
     };
 
@@ -407,6 +411,15 @@ window.__ModuleLoader__.load({
       return Object.values(list?.byId ?? {}).find((summary) => (summary?.retainedBy?.mainView ?? 0) > 0)?.id;
     }
 
+    /**
+     * The native shared context-menu target for a Workspace. `contextMenus`
+     * resolves this by `kind` and the menu contributions read the value,
+     * exactly like the native sidebar's `{ kind: 'workspace', value: {...} }`.
+     */
+    function workspaceMenuTarget(workspaceId, path, displayTitle) {
+      return { kind: 'workspace', value: { workspaceId, path, displayTitle } };
+    }
+
     // ---------------------------------------------------------------------
     // Icons (own artwork, currentColor).
     // ---------------------------------------------------------------------
@@ -500,14 +513,49 @@ window.__ModuleLoader__.load({
       h('path', { d: 'M2.5 4.5h11a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H8.2L4.5 13.5V11.5H2.5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z' }),
     ]));
 
+    // Ellipsis glyph for the per-workspace menu trigger, matching the native
+    // sidebar button artwork (three filled dots, currentColor).
+    const ellipsisGlyph = h('svg', {
+      viewBox: '0 0 16 16',
+      width: 16,
+      height: 16,
+      'aria-hidden': true,
+      focusable: false,
+    }, h('g', { fill: 'currentColor' }, [
+      h('path', { d: 'M3 9C3.55228 9 4 8.55228 4 8C4 7.44772 3.55228 7 3 7C2.44772 7 2 7.44772 2 8C2 8.55228 2.44772 9 3 9Z' }),
+      h('path', { d: 'M8 9C8.55228 9 9 8.55228 9 8C9 7.44772 8.55228 7 8 7C7.44772 7 7 7.44772 7 8C7 8.55228 7.44772 9 8 9Z' }),
+      h('path', { d: 'M13 9C13.5523 9 14 8.55228 14 8C14 7.44772 13.5523 7 13 7C12.4477 7 12 7.44772 12 8C12 8.55228 12.4477 9 13 9Z' }),
+    ]));
+
+    // New-session glyph for the per-workspace create button, matching the
+    // native sidebar button artwork (outlined bubble plus a plus sign).
+    const newChatGlyph = h('svg', {
+      viewBox: '0 0 16 16',
+      width: 14,
+      height: 14,
+      'aria-hidden': true,
+      focusable: false,
+    }, h('g', {
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: 1,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+    }, [
+      h('path', { d: 'M2.37091 11.2501C1.58745 9.89288 1.32067 8.29835 1.61969 6.76006C1.91872 5.22177 2.76342 3.8433 3.99826 2.87846C5.2331 1.91362 6.77494 1.42737 8.33988 1.50925C9.90482 1.59113 11.3875 2.23562 12.5149 3.32406C13.6425 4.41269 14.3387 5.87206 14.4754 7.4334C14.612 8.99474 14.18 10.5529 13.2587 11.8209C12.3375 13.0888 10.9891 13.9813 9.46194 14.3337C8.18691 14.628 6.85895 14.5294 5.64989 14.0605C5.1712 13.8748 4.76962 13.4932 4.26534 13.3967C3.67413 13.2835 2.95257 13.5598 2.03794 14.3337' }),
+      h('path', { d: 'M8 5V11' }),
+      h('path', { d: 'M5 8H11' }),
+    ]));
+
     // ---------------------------------------------------------------------
     // Page.
     // ---------------------------------------------------------------------
 
-    // The `main` slot passes the standard `useSessions` / `useWorkspaces`
-    // hooks, `t`, and the `inject` face ({ searchSessions, searchResultLimit,
-    // openSession, openWorkspace }) as props.
-    function ExplorerPage({ t, useSessions, useWorkspaces, searchSessions, searchResultLimit = 20, openSession, openWorkspace }) {
+    // The `main` slot passes the standard `useSessions` / `useWorkspaces` /
+    // `useWorkspaceAccess` hooks, `t`, and the `inject` face ({ searchSessions,
+    // searchResultLimit, openSession, openWorkspace, startSession,
+    // openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen }) as props.
+    function ExplorerPage({ t, useSessions, useWorkspaces, useWorkspaceAccess, searchSessions, searchResultLimit = 20, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen }) {
       const list = useSessions((s) => s);
       const ws = useWorkspaces((s) => s);
       const [query, setQuery] = React.useState('');
@@ -589,7 +637,7 @@ window.__ModuleLoader__.load({
           key: 'workspaces',
           label: t('group.workspaces'),
           items: view.workspaces,
-          renderRow: (row) => h(WorkspaceRow, { key: row.workspaceId, row, t, openSession, openWorkspace }),
+          renderRow: (row) => h(WorkspaceRow, { key: row.workspaceId, row, t, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen, useWorkspaceAccess }),
         },
         {
           key: 'sessions',
@@ -683,16 +731,34 @@ window.__ModuleLoader__.load({
 
     // A Workspace row: clicking opens its top pinned/recent Session, or a new
     // Session in the Workspace when it has none. `groupKeys` makes the native
-    // sidebar reveal the owning Workspace before the Session appears.
-    function WorkspaceRow({ row, t, openSession, openWorkspace }) {
+    // sidebar reveal the owning Workspace before the Session appears. Two
+    // always-visible action buttons follow the native sidebar row: a
+    // shared-context-menu trigger (ellipsis) and a New Session button.
+    function WorkspaceRow({ row, t, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen, useWorkspaceAccess }) {
+      // Hooks run unconditionally at the top of the component.
+      const canCreate = useWorkspaceAccess(row.workspaceId, 'session/create');
+      const menuOpen = useWorkspaceMenuOpen(row.workspaceId);
+      const menuButtonId = `dwe-workspace-menu:${row.workspaceId}`;
       const onClick = () => {
         if (row.topSessionId !== undefined) openSession(row.topSessionId, row.groupKeys);
         else openWorkspace(row.workspaceId, row.groupKeys);
       };
-      return h('li', { className: 'dwe-row' },
+      const onMenuClick = (event) => {
+        event.stopPropagation();
+        event.currentTarget.focus({ preventScroll: true });
+        if (menuOpen) { closeWorkspaceMenu(); return; }
+        const rect = event.currentTarget.getBoundingClientRect();
+        openWorkspaceMenu(row.workspaceId, row.path, row.title, { x: rect.left, y: rect.bottom }, menuButtonId);
+      };
+      const onNewSessionClick = (event) => {
+        event.stopPropagation();
+        startSession(row.workspaceId, row.groupKeys);
+      };
+      const hasPath = typeof row.path === 'string' && row.path !== '';
+      return h('li', { className: 'dwe-row dwe-row-with-actions' },
         h('button', {
           type: 'button',
-          className: 'dwe-row-button',
+          className: 'dwe-row-main',
           title: row.path,
           'aria-label': t('row.openWorkspace', { name: row.title }),
           onClick,
@@ -703,6 +769,31 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dwe-row-secondary' }, row.path),
           ),
         ),
+        h('div', { className: 'dwe-row-actions' },
+          hasPath
+            ? h('button', {
+                type: 'button',
+                id: menuButtonId,
+                className: 'dwe-row-action',
+                'data-context-menu-trigger': '',
+                'aria-label': t('row.workspaceMenu', { name: row.title }),
+                title: t('row.workspaceMenu', { name: row.title }),
+                'aria-haspopup': 'menu',
+                'aria-expanded': menuOpen,
+                onPointerDown: (event) => { event.stopPropagation(); },
+                onClick: onMenuClick,
+              }, ellipsisGlyph)
+            : null,
+          canCreate
+            ? h('button', {
+                type: 'button',
+                className: 'dwe-row-action',
+                'aria-label': t('row.newSession', { name: row.title }),
+                title: t('row.newSession', { name: row.title }),
+                onClick: onNewSessionClick,
+              }, newChatGlyph)
+            : null,
+        ),
       );
     }
 
@@ -711,7 +802,7 @@ window.__ModuleLoader__.load({
       return h('li', { className: 'dwe-row' },
         h('button', {
           type: 'button',
-          className: 'dwe-row-button',
+          className: 'dwe-row-main',
           title: row.title,
           'aria-label': t('row.openSession', { title: row.title }),
           onClick: () => openSession(row.id, row.groupKeys),
@@ -892,13 +983,28 @@ window.__ModuleLoader__.load({
         list-style: none;
       }
       .dwe-row {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 2px;
         min-width: 0;
+        border-radius: var(--dsw-radius-sm, 4px);
       }
-      .dwe-row-button {
+      .dwe-row:hover {
+        background: var(--dsw-alias-interactive-bg-hover, transparent);
+      }
+      /* The glass theme glows any button whose class contains "button". Keep
+         that hover halo on the whole row instead of letting it stop where the
+         trailing actions begin. */
+      [data-dsh-glass-float] .dwe-row:hover {
+        box-shadow: 0 0 12px color-mix(in srgb, var(--dsw-alias-brand-primary-new-color, var(--dsw-alias-state-business-primary)) 20%, transparent);
+      }
+      .dwe-row-main {
+        flex: 1 1 auto;
+        min-width: 0;
         display: flex;
         align-items: flex-start;
         gap: 10px;
-        width: 100%;
         box-sizing: border-box;
         padding: 10px;
         border: none;
@@ -909,8 +1015,37 @@ window.__ModuleLoader__.load({
         text-align: left;
         cursor: pointer;
       }
-      .dwe-row-button:hover {
-        background: var(--dsw-alias-interactive-bg-hover, transparent);
+      .dwe-row-with-actions .dwe-row-main {
+        padding-right: 70px;
+      }
+      .dwe-row-actions {
+        position: absolute;
+        top: 50%;
+        right: 0;
+        transform: translateY(-50%);
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 6px 0 2px;
+        pointer-events: none;
+      }
+      .dwe-row-action {
+        flex: none;
+        pointer-events: auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: none;
+        border-radius: var(--dsw-radius-xs, 4px);
+        background: transparent;
+        color: var(--dsw-alias-label-tertiary, currentColor);
+        cursor: pointer;
+      }
+      .dwe-row-action:hover {
+        color: var(--dsw-alias-label-primary, inherit);
       }
       .dwe-row-glyph {
         flex: none;
@@ -952,9 +1087,13 @@ window.__ModuleLoader__.load({
       }
       .dwe-search-clear:focus-visible,
       .dwe-group-header:focus-visible,
-      .dwe-row-button:focus-visible {
+      .dwe-row-main:focus-visible {
         outline: 2px solid var(--dsw-alias-state-business-primary);
         outline-offset: 2px;
+      }
+      .dwe-row-action:focus-visible {
+        outline: 2px solid var(--dsw-alias-state-business-primary);
+        outline-offset: -2px;
       }
       @media (prefers-reduced-motion: reduce) {
         .dwe-group-chevron {
@@ -1002,12 +1141,36 @@ window.__ModuleLoader__.load({
             }).catch((reason) =>
               console.warn('workspace explorer: open workspace failed', reason));
           },
+          startSession: (workspaceId, groupKeys) => {
+            expandWorkspaceGroups(ctx.slots, groupKeys ?? [workspaceId]);
+            const before = currentMainSessionId(ctx.sessions.list.getSnapshot());
+            // Synchronous failures (e.g. a missing Workspace) propagate to the
+            // caller; the reveal chain is fire-and-forget.
+            ctx.uiWorkspace.startSession(workspaceId);
+            Promise.resolve().then(() => {
+              const after = currentMainSessionId(ctx.sessions.list.getSnapshot());
+              scheduleSidebarRowReveal([
+                ...(after === undefined || after === before ? [] : [`session:${after}`]),
+                `workspace:${workspaceId}`,
+              ]);
+            }).catch(() => {});
+          },
+          openWorkspaceMenu: (workspaceId, path, displayTitle, point, buttonId) =>
+            ctx.contextMenus.open(workspaceMenuTarget(workspaceId, path, displayTitle), point, { button: buttonId }),
+          closeWorkspaceMenu: () => ctx.contextMenus.close(),
+          useWorkspaceMenuOpen: (workspaceId) => {
+            const target = React.useSyncExternalStore(
+              ctx.contextMenus.active.subscribe,
+              ctx.contextMenus.active.getSnapshot,
+            );
+            return target !== null && target.kind === 'workspace' && target.value.workspaceId === workspaceId;
+          },
         }),
       }, ExplorerPage));
     }
 
     return {
-      inject: ['slots', 'locale', 'sessions', 'uiWorkspace'],
+      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus'],
       apply,
       __test: {
         sanitizeQuery,
@@ -1031,6 +1194,7 @@ window.__ModuleLoader__.load({
         expandWorkspaceGroups,
         revealSidebarRow,
         currentMainSessionId,
+        workspaceMenuTarget,
         locales: { en, zh },
       },
     };
