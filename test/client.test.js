@@ -22,7 +22,7 @@ const hostSource = readFileSync(path.join(root, 'index.js'), 'utf8');
 // ---------------------------------------------------------------------------
 
 test('module registers the expected inject array and apply', () => {
-  assert.deepEqual(mod.inject, ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus', 'workspaces', 'remote', 'remote.settings']);
+  assert.deepEqual(mod.inject, ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus', 'layout', 'workspaces', 'remote', 'remote.settings']);
   assert.equal(typeof mod.apply, 'function');
   assert.ok(mod.__test, '__test export present');
 });
@@ -140,6 +140,32 @@ test('static source: order preference persists through the volatile plugin Confi
   assert.ok(!clientSource.includes('localStorage'), 'no browser-local persistence path');
 });
 
+test('static source: header back button (X glyph) and its locale labels', () => {
+  assert.ok(clientSource.includes("'page.back': 'Back to previous page'"), 'en back label');
+  assert.ok(clientSource.includes("'page.back': '返回上一页'"), 'zh back label');
+  assert.ok(clientSource.includes('dwe-back'), 'back button class present');
+  assert.ok(clientSource.includes('dwe-header-text'), 'header text block class present');
+  assert.ok(clientSource.includes('const backGlyph'), 'X back glyph defined');
+  assert.ok(clientSource.includes("'aria-label': t('page.back')"), 'button label routes through the translator');
+  assert.ok(clientSource.includes('title: t(\'page.back\')'), 'button tooltip routes through the translator');
+  assert.match(clientSource, /h\('button', \{\s*type: 'button',\s*className: 'dwe-back',/s, 'header renders the back button');
+  assert.ok(clientSource.includes('x1: 4, y1: 4, x2: 12, y2: 12'), 'X diagonal one present');
+  assert.ok(clientSource.includes('x1: 12, y1: 4, x2: 4, y2: 12'), 'X diagonal two present');
+  assert.ok(clientSource.includes('.dwe-back:focus-visible'), 'back button keeps a focus ring');
+  assert.ok(clientSource.includes('.dwe-back:hover'), 'back button has a hover fill');
+  assert.ok(clientSource.includes('--dsw-alias-label-secondary'), 'back button uses theme tokens');
+});
+
+test('static source: frame-wide history watcher registered in shell.overlay', () => {
+  assert.ok(clientSource.includes("ctx.slots.inject('shell.overlay'"), 'shell.overlay watcher registered');
+  assert.ok(clientSource.includes("id: 'dsh-workspace-explorer-history'"), 'watcher uses its own slot id');
+  assert.ok(clientSource.includes('PanelHistoryWatcher'), 'watcher component defined');
+  assert.ok(clientSource.includes('usePanelInfo'), 'watcher subscribes to the active main panel');
+  assert.ok(clientSource.includes('panelHistory.remember'), 'watcher writes the panel history');
+  assert.ok(clientSource.includes('return null;'), 'watcher renders nothing');
+  assert.ok(clientSource.includes('ctx.layout'), 'back navigation goes through the layout service');
+});
+
 test('package.json: version, bundle patch, client flags, one runtime dependency, scripts', () => {
   const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.equal(pkg.version, '0.0.0');
@@ -173,7 +199,7 @@ test('cordis.patch.yml contains the plugin row id/name', () => {
 test('en/zh dictionaries have identical keys and the required new keys', () => {
   const { en, zh } = mod.__test.locales;
   assert.deepEqual(Object.keys(en).sort(), Object.keys(zh).sort());
-  for (const key of ['group.ungrouped', 'group.addWorkspace', 'group.addWorkspaceFailed', 'row.openWorkspace', 'row.openSession', 'row.workspaceMenu', 'row.newSession', 'search.hasMore', 'session.untitled', 'viewOptions.label', 'orderBy.label', 'orderBy.manual', 'orderBy.updated']) {
+  for (const key of ['group.ungrouped', 'group.addWorkspace', 'group.addWorkspaceFailed', 'row.openWorkspace', 'row.openSession', 'row.workspaceMenu', 'row.newSession', 'search.hasMore', 'session.untitled', 'viewOptions.label', 'orderBy.label', 'orderBy.manual', 'orderBy.updated', 'page.back']) {
     assert.ok(key in en, `en has ${key}`);
     assert.ok(key in zh, `zh has ${key}`);
   }
@@ -200,6 +226,8 @@ test('en/zh dictionaries have identical keys and the required new keys', () => {
   assert.equal(zh['orderBy.manual'], '手动排序');
   assert.equal(en['orderBy.updated'], 'Last updated');
   assert.equal(zh['orderBy.updated'], '最近更新');
+  assert.equal(en['page.back'], 'Back to previous page');
+  assert.equal(zh['page.back'], '返回上一页');
 });
 
 test('__test exposes the pure helpers as functions', () => {
@@ -210,7 +238,7 @@ test('__test exposes the pure helpers as functions', () => {
     'sessionMatchTitle', 'sessionDisplayTitle', 'owningWorkspace', 'owningParentFolder',
     'groupKeysForWorkspace', 'groupKeysForSession', 'sidebarViewActions',
     'expandWorkspaceGroups', 'revealSidebarRow', 'currentMainSessionId', 'workspaceMenuTarget',
-    'directoryFlowEntry', 'directoryFlowFace',
+    'directoryFlowEntry', 'directoryFlowFace', 'createPanelHistory',
   ]) {
     assert.equal(typeof mod.__test[name], 'function', `${name} is a function`);
   }
@@ -524,6 +552,20 @@ test('deriveView: search filters first, then orderBy applies to the survivors', 
 // Helper-level tests
 // ---------------------------------------------------------------------------
 
+test('createPanelHistory: records non-explorer panels, ignores the explorer itself', () => {
+  const { createPanelHistory } = mod.__test;
+  const history = createPanelHistory();
+  assert.equal(history.previous(), null, 'starts with no previous panel');
+  history.remember('plugins');
+  assert.equal(history.previous(), 'plugins');
+  history.remember('schedules');
+  assert.equal(history.previous(), 'schedules', 'the most recent non-explorer panel wins');
+  history.remember('dsh-workspace-explorer');
+  assert.equal(history.previous(), 'schedules', 'the explorer itself is never recorded');
+  history.remember(null);
+  assert.equal(history.previous(), null, 'the conversation view is a valid back target');
+});
+
 test('sanitizeQuery strips NUL, caps at 500 code units, preserves surrogate pairs', () => {
   const { sanitizeQuery } = mod.__test;
   assert.equal(sanitizeQuery('ab\0cd'), 'abcd');
@@ -825,6 +867,7 @@ test('apply: opening from the explorer expands groups then delegates navigation'
     effect: (callback) => callback(),
     locale: { bind: () => (key) => key, register: () => () => {} },
     slots,
+    layout: { selectPanel: () => {} },
     sessions: {
       search: async () => ({ ok: true, value: { items: [], hasMore: false } }),
       searchResultLimit: 20,
@@ -846,6 +889,11 @@ test('apply: opening from the explorer expands groups then delegates navigation'
   };
   mod.apply(ctx);
   const face = registered.main.options.inject();
+  // The frame-wide history watcher is registered in shell.overlay with its
+  // own id, rendering nothing.
+  assert.equal(registered['shell.overlay'].options.name, 'shell.overlay');
+  assert.equal(registered['shell.overlay'].options.id, 'dsh-workspace-explorer-history');
+  assert.equal(typeof registered['shell.overlay'].component, 'function');
   face.openSession('s1', ['w2', 'w1']);
   assert.deepEqual(expanded, [['w2', true], ['w1', true]], 'all group keys expanded first');
   assert.deepEqual(opens[0], ['session', 's1']);
@@ -878,4 +926,91 @@ test('apply: opening from the explorer expands groups then delegates navigation'
   assert.equal(typeof unsubscribe, 'function', 'slot subscription degrades to a no-op without slot subscribe');
   await face.createWorkspace('/work/delta');
   assert.deepEqual(created, [{ path: '/work/delta' }], 'add delegates the picked directory to workspaces.create');
+});
+
+test('apply: back() returns to the recorded main panel, falling back to the conversation', () => {
+  const registered = {};
+  const selected = [];
+  const ctx = {
+    effect: (callback) => callback(),
+    locale: { bind: () => (key) => key, register: () => () => {} },
+    slots: {
+      entries: () => [],
+      inject: (key, callback) => { callback(); return () => {}; },
+      register: (options, component) => { registered[options.name] = { options, component }; return () => {}; },
+    },
+    layout: { selectPanel: (id) => selected.push(id) },
+    sessions: {
+      search: async () => ({ ok: true, value: { items: [], hasMore: false } }),
+      searchResultLimit: 20,
+      list: { getSnapshot: () => ({ byId: {} }) },
+    },
+    uiWorkspace: { openSession: () => {}, openWorkspace: async () => {}, startSession: () => {} },
+    contextMenus: {
+      active: { subscribe: () => () => {}, getSnapshot: () => null },
+      open: () => {}, close: () => {},
+    },
+    workspaces: { create: async () => ({}) },
+  };
+  mod.apply(ctx);
+  const face = registered.main.options.inject();
+  assert.equal(typeof face.back, 'function', 'back face injected into the main slot');
+
+  // A recorded previous panel: back selects it directly.
+  mod.__test.panelHistory.remember('plugins');
+  face.back();
+  assert.deepEqual(selected, ['plugins']);
+
+  // No recorded panel (the conversation view was active): back to null.
+  mod.__test.panelHistory.remember(null);
+  face.back();
+  assert.deepEqual(selected, ['plugins', null]);
+});
+
+test('apply: back() falls back to the conversation when the recorded panel is unavailable', () => {
+  const registered = {};
+  const calls = [];
+  const ctx = {
+    effect: (callback) => callback(),
+    locale: { bind: () => (key) => key, register: () => () => {} },
+    slots: {
+      entries: () => [],
+      inject: (key, callback) => { callback(); return () => {}; },
+      register: (options, component) => { registered[options.name] = { options, component }; return () => {}; },
+    },
+    layout: {
+      selectPanel: (id) => {
+        calls.push(id);
+        if (id !== null) throw new Error(`layout.selectPanel: main panel "${id}" is not registered`);
+      },
+    },
+    sessions: {
+      search: async () => ({ ok: true, value: { items: [], hasMore: false } }),
+      searchResultLimit: 20,
+      list: { getSnapshot: () => ({ byId: {} }) },
+    },
+    uiWorkspace: { openSession: () => {}, openWorkspace: async () => {}, startSession: () => {} },
+    contextMenus: {
+      active: { subscribe: () => () => {}, getSnapshot: () => null },
+      open: () => {}, close: () => {},
+    },
+    workspaces: { create: async () => ({}) },
+  };
+  mod.apply(ctx);
+  const face = registered.main.options.inject();
+
+  // A recorded panel that is no longer registered: the layout service throws,
+  // and back falls back to the conversation with a warning.
+  const originalWarn = console.warn;
+  let warned = false;
+  console.warn = (...args) => { warned = true; };
+  try {
+    mod.__test.panelHistory.remember('uninstalled-plugin-panel');
+    face.back();
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.deepEqual(calls, ['uninstalled-plugin-panel', null],
+    'attempts the recorded panel, then falls back to the conversation');
+  assert.equal(warned, true, 'the fallback logs a warning');
 });

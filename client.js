@@ -18,6 +18,7 @@ window.__ModuleLoader__.load({
       'panel.label': 'Workspace Explorer',
       'page.title': 'Workspace Explorer',
       'page.subtitle': 'Search sessions and browse workspaces in one place.',
+      'page.back': 'Back to previous page',
       'search.placeholder': 'Search workspaces / sessions',
       'search.clear': 'Clear search',
       'search.hasMore': 'Showing the first {limit} results. Narrow your search.',
@@ -42,6 +43,7 @@ window.__ModuleLoader__.load({
       'panel.label': '工作区浏览器',
       'page.title': '工作区浏览器',
       'page.subtitle': '在一个页面中搜索会话、浏览工作区。',
+      'page.back': '返回上一页',
       'search.placeholder': '搜索工作区 / 会话',
       'search.clear': '清除搜索',
       'search.hasMore': '仅显示前 {limit} 条结果，请缩小搜索范围。',
@@ -534,6 +536,32 @@ window.__ModuleLoader__.load({
     }
 
     // ---------------------------------------------------------------------
+    // Panel history (back navigation).
+    // ---------------------------------------------------------------------
+
+    /**
+     * Fresh panel-history store: `remember(id)` records the active main panel
+     * whenever it is not Workspace Explorer itself; `previous()` returns the
+     * recorded panel — `null` when the conversation view was active or nothing
+     * was recorded yet.
+     */
+    function createPanelHistory() {
+      let previousPanelId = null;
+      return {
+        remember(id) {
+          if (id === PANEL_ID) return;
+          previousPanelId = id;
+        },
+        previous() {
+          return previousPanelId;
+        },
+      };
+    }
+
+    /** Live history instance; written by the `shell.overlay` watcher below. */
+    const panelHistory = createPanelHistory();
+
+    // ---------------------------------------------------------------------
     // Icons (own artwork, currentColor).
     // ---------------------------------------------------------------------
 
@@ -584,6 +612,25 @@ window.__ModuleLoader__.load({
       viewBox: '0 0 16 16',
       width: 12,
       height: 12,
+      'aria-hidden': true,
+      focusable: false,
+    }, h('g', {
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: 1.8,
+      strokeLinecap: 'round',
+    }, [
+      h('line', { x1: 4, y1: 4, x2: 12, y2: 12 }),
+      h('line', { x1: 12, y1: 4, x2: 4, y2: 12 }),
+    ]));
+
+    // X glyph for the header's back button: closes the Explorer page and
+    // returns to the main panel the user was on before opening it. A plain X
+    // (never a left arrow), drawn to the native header-button geometry.
+    const backGlyph = h('svg', {
+      viewBox: '0 0 16 16',
+      width: 16,
+      height: 16,
       'aria-hidden': true,
       focusable: false,
     }, h('g', {
@@ -1027,6 +1074,27 @@ window.__ModuleLoader__.load({
     }
 
     // ---------------------------------------------------------------------
+    // Panel history watcher.
+    // ---------------------------------------------------------------------
+
+    /**
+     * Frame-wide listener that records the main panel the user was on before
+     * Workspace Explorer opened. Renders nothing; it lives in `shell.overlay`
+     * so the record survives opening the Explorer from any surface — the
+     * pinned sidebar entry, the More menu, a shortcut — not just one entry
+     * point. Whenever the active main panel is not the Explorer itself
+     * (including the conversation view, `null`), the watcher stores it as the
+     * back target.
+     */
+    function PanelHistoryWatcher({ usePanelInfo }) {
+      const activePanelId = usePanelInfo((info) => info?.activePanelId ?? null);
+      React.useEffect(() => {
+        panelHistory.remember(activePanelId);
+      }, [activePanelId]);
+      return null;
+    }
+
+    // ---------------------------------------------------------------------
     // Page.
     // ---------------------------------------------------------------------
 
@@ -1034,8 +1102,8 @@ window.__ModuleLoader__.load({
     // `useWorkspaceAccess` hooks, `t`, and the `inject` face ({ searchSessions,
     // searchResultLimit, openSession, openWorkspace, startSession,
     // openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen,
-    // useDirectoryFlow, createWorkspace, orderByPreference }) as props.
-    function ExplorerPage({ t, useSessions, useWorkspaces, useWorkspaceAccess, searchSessions, searchResultLimit = 20, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen, useDirectoryFlow, createWorkspace, orderByPreference }) {
+    // useDirectoryFlow, createWorkspace, orderByPreference, back }) as props.
+    function ExplorerPage({ t, useSessions, useWorkspaces, useWorkspaceAccess, back, searchSessions, searchResultLimit = 20, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen, useDirectoryFlow, createWorkspace, orderByPreference }) {
       const list = useSessions((s) => s);
       const ws = useWorkspaces((s) => s);
       const [query, setQuery] = React.useState('');
@@ -1137,8 +1205,17 @@ window.__ModuleLoader__.load({
         h('style', { dangerouslySetInnerHTML: { __html: CSS } }),
         h('div', { className: 'dwe-column' },
           h('header', { className: 'dwe-header' },
-            h('h1', { className: 'dwe-title' }, t('page.title')),
-            h('p', { className: 'dwe-subtitle' }, t('page.subtitle')),
+            h('div', { className: 'dwe-header-text' },
+              h('h1', { className: 'dwe-title' }, t('page.title')),
+              h('p', { className: 'dwe-subtitle' }, t('page.subtitle')),
+            ),
+            h('button', {
+              type: 'button',
+              className: 'dwe-back',
+              'aria-label': t('page.back'),
+              title: t('page.back'),
+              onClick: back,
+            }, backGlyph),
           ),
           h('div', { className: 'dwe-search' },
             h('span', { className: 'dwe-search-icon', 'aria-hidden': true }, searchGlyph),
@@ -1346,8 +1423,16 @@ window.__ModuleLoader__.load({
         padding: 0;
       }
       .dwe-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
         padding-top: 28px;
         margin: 0 0 24px;
+      }
+      .dwe-header-text {
+        flex: 1 1 auto;
+        min-width: 0;
       }
       [data-platform='darwin'] .dwe-header {
         padding-top: calc(28px + var(--dsh-frame-top-clearance, 0px));
@@ -1364,6 +1449,33 @@ window.__ModuleLoader__.load({
         font-size: 13px;
         line-height: 20px;
         color: var(--dsw-alias-label-secondary, inherit);
+      }
+      /* Header back button: native icon-button geometry — 28px hit area,
+         16px artwork, label-secondary colour, subtle hover fill, focus ring. */
+      .dwe-back {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        border-radius: var(--dsw-radius-sm, 4px);
+        background: transparent;
+        color: var(--dsw-alias-label-secondary, currentColor);
+        cursor: pointer;
+      }
+      .dwe-back:hover {
+        background: var(--dsw-alias-interactive-bg-hover, transparent);
+        color: var(--dsw-alias-label-primary, inherit);
+      }
+      .dwe-back:active {
+        background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover, transparent));
+      }
+      .dwe-back:focus-visible {
+        outline: 2px solid var(--dsw-alias-state-business-primary);
+        outline-offset: -2px;
       }
       .dwe-search {
         display: flex;
@@ -1737,6 +1849,13 @@ window.__ModuleLoader__.load({
         locale: NS,
         label: () => t('panel.label'),
       }, PanelIcon));
+      // Frame-wide history watcher (renders nothing): records the main panel
+      // the user was on before opening Workspace Explorer, so the header's
+      // back button works no matter how the Explorer was opened.
+      ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+        name: 'shell.overlay',
+        id: 'dsh-workspace-explorer-history',
+      }, PanelHistoryWatcher));
       // Read/write the persisted Workspaces order through the Host's settings
       // Remote. The Config field is volatile, so a write updates in place; a
       // failed read or write leaves the page on its in-memory selection.
@@ -1770,6 +1889,15 @@ window.__ModuleLoader__.load({
             return result.value; // { items: { sessionId, snippet }[], hasMore: boolean }
           },
           searchResultLimit: ctx.sessions.searchResultLimit, // 20
+          back: () => {
+            const target = panelHistory.previous();
+            try {
+              ctx.layout.selectPanel(target);
+            } catch (reason) {
+              console.warn('workspace explorer: previous panel unavailable, returning to the conversation', reason);
+              ctx.layout.selectPanel(null);
+            }
+          },
           openSession: (sessionId, groupKeys) => {
             expandWorkspaceGroups(ctx.slots, groupKeys);
             ctx.uiWorkspace.openSession(sessionId);
@@ -1834,7 +1962,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus', 'workspaces', 'remote', 'remote.settings'],
+      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus', 'layout', 'workspaces', 'remote', 'remote.settings'],
       apply,
       __test: {
         sanitizeQuery,
@@ -1865,6 +1993,8 @@ window.__ModuleLoader__.load({
         workspaceMenuTarget,
         directoryFlowEntry,
         directoryFlowFace,
+        createPanelHistory,
+        panelHistory,
         locales: { en, zh },
       },
     };

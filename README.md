@@ -9,6 +9,15 @@ the icon opens a dedicated `main` page that replaces the conversation view while
 it is open; navigating back to the conversation (for example via the sidebar)
 returns to it.
 
+The page's title bar carries an **X** button at its top-right. Clicking it
+returns to the main panel you were on before opening the Explorer — the
+conversation view, or another plugin page such as Plugins, Schedules, or a
+Context panel — no matter how you opened the Explorer (pinned sidebar entry,
+More menu, or elsewhere). The previous panel is tracked frame-wide while the
+Explorer is open; when none was recorded or the recorded panel is no longer
+available (for example its plugin was uninstalled), the button returns to the
+conversation view.
+
 With an empty query the page browses everything:
 
 - **Workspaces** — every registered Workspace in Host order

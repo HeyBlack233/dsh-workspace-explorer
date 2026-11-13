@@ -18,6 +18,12 @@ Release Date: TBD
 - New **Workspace Explorer** entry in the DSH Web sidebar; clicking it opens a
   dedicated search/browse page in the `main` column. The page replaces the
   conversation view while open, and navigation returns to the conversation.
+- The page title bar carries an **X** back button at its top-right that returns
+  to the main panel you were on before opening the Explorer (the conversation
+  view or another plugin page such as Plugins, Schedules, or a Context panel).
+  The previous panel is tracked frame-wide regardless of how the Explorer was
+  opened; with no recorded previous panel — or when it is no longer available —
+  the button returns to the conversation view.
 - Empty-query browse: every Workspace in Host order plus the most recent
   Sessions (capped at 20); archived, blank, and subagent Sessions are excluded
   everywhere.
