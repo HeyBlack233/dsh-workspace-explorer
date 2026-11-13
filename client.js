@@ -23,6 +23,8 @@ window.__ModuleLoader__.load({
       'group.sessions': 'Sessions',
       'group.ungrouped': 'Ungrouped',
       'group.count': '{count}',
+      'group.addWorkspace': 'Add workspace',
+      'group.addWorkspaceFailed': 'Could not add workspace: {message}',
       'state.loading': 'Loading…',
       'row.openWorkspace': 'Open workspace {name}',
       'row.openSession': 'Open session {title}',
@@ -41,6 +43,8 @@ window.__ModuleLoader__.load({
       'group.sessions': '会话',
       'group.ungrouped': '未分组',
       'group.count': '{count}',
+      'group.addWorkspace': '添加工作区',
+      'group.addWorkspaceFailed': '无法添加工作区：{message}',
       'state.loading': '加载中…',
       'row.openWorkspace': '打开工作区 {name}',
       'row.openSession': '打开会话 {title}',
@@ -420,6 +424,44 @@ window.__ModuleLoader__.load({
       return { kind: 'workspace', value: { workspaceId, path, displayTitle } };
     }
 
+    /**
+     * The registered `sidebar.workspaces.directoryFlow` entry: the native
+     * directory flow the sidebar's own Add workspace button renders. Read the
+     * rendering winner first (the entry an outlet actually displays), then fall
+     * back to all entries on older slot layers.
+     */
+    function directoryFlowEntry(slots) {
+      if (slots === undefined || slots === null) return undefined;
+      try {
+        const entries = typeof slots.entriesOfSlot === 'function'
+          ? slots.entriesOfSlot('sidebar.workspaces.directoryFlow')
+          : slots.entries('sidebar.workspaces.directoryFlow');
+        return entries?.[0];
+      } catch {
+        return undefined;
+      }
+    }
+
+    /**
+     * Component plus injected face of the native directory flow, or undefined
+     * when the composition has no flow (the sidebar hides its button then too).
+     * The flow entry's injection is plain props (native chooser `pick`, or the
+     * browse flow's listing helpers and translator); an entry whose injection
+     * needs render-time hook binding is left alone rather than rendered blind.
+     */
+    function directoryFlowFace(entry) {
+      if (entry === undefined || entry === null || entry.component === undefined || entry.component === null) return undefined;
+      if (typeof entry.inject !== 'function') return undefined;
+      let face;
+      try {
+        face = entry.inject();
+      } catch {
+        return undefined;
+      }
+      if (face === null || typeof face !== 'object' || face.hooks !== undefined) return undefined;
+      return { component: entry.component, props: face };
+    }
+
     // ---------------------------------------------------------------------
     // Icons (own artwork, currentColor).
     // ---------------------------------------------------------------------
@@ -547,6 +589,113 @@ window.__ModuleLoader__.load({
       h('path', { d: 'M5 8H11' }),
     ]));
 
+    // Add-workspace glyph for the Workspaces group header, matching the native
+    // sidebar's plus button artwork: a filled folder outline with a plus sign.
+    const projectAddGlyph = h('svg', {
+      viewBox: '0 0 16 16',
+      width: 16,
+      height: 16,
+      fill: 'none',
+      strokeWidth: 1,
+      'aria-hidden': true,
+      focusable: false,
+    }, [
+      h('path', {
+        key: 'project-add-folder',
+        d: 'M5.54492 2.06738C5.91034 2.06754 6.26318 2.20149 6.53711 2.44336L7.94043 3.68164V4.7998C7.71462 4.74105 7.50367 4.63139 7.32617 4.47461L5.87598 3.19238C5.78477 3.11185 5.66658 3.06754 5.54492 3.06738H2.94922C2.67322 3.06738 2.44946 3.29145 2.44922 3.56738V12.4326C2.44927 12.7087 2.67311 12.9326 2.94922 12.9326H12.9326C13.2086 12.9325 13.4326 12.7086 13.4326 12.4326V8.53613H14.4326V12.4326C14.4326 13.2609 13.7609 13.9325 12.9326 13.9326H2.94922C2.12083 13.9326 1.44927 13.261 1.44922 12.4326V3.56738C1.44946 2.73916 2.12094 2.06738 2.94922 2.06738H5.54492Z',
+        fill: 'currentColor',
+      }),
+      h('path', { key: 'project-add-horizontal', d: 'M9.75977 4.50208H14.5509', stroke: 'currentColor' }),
+      h('path', { key: 'project-add-vertical', d: 'M12.1492 6.89758L12.1492 2.10642', stroke: 'currentColor' }),
+    ]);
+
+    // ---------------------------------------------------------------------
+    // Workspaces group header: native Add workspace action.
+    // ---------------------------------------------------------------------
+
+    /**
+     * State and nodes for the Workspaces group header's Add workspace action.
+     * The button and the directory flow it opens are borrowed from the same
+     * native `sidebar.workspaces.directoryFlow` registration the sidebar's own
+     * plus button uses: whichever picker backend the composition mounted
+     * (native OS chooser or in-app browse dialog) renders unchanged. With no
+     * flow registration the action is absent, matching the native sidebar.
+     */
+    function useAddWorkspace({ t, useDirectoryFlow, createWorkspace, startSession }) {
+      const entry = typeof useDirectoryFlow === 'function' ? useDirectoryFlow((value) => value) : undefined;
+      const flow = React.useMemo(() => directoryFlowFace(entry), [entry]);
+      const [open, setOpen] = React.useState(false);
+      const [busy, setBusy] = React.useState(false);
+      const [error, setError] = React.useState(null);
+
+      const close = () => {
+        setOpen(false);
+        setBusy(false);
+      };
+      const fail = (message) => {
+        setOpen(false);
+        setBusy(false);
+        setError(t('group.addWorkspaceFailed', { message }));
+      };
+      const onPicked = (path) => {
+        if (typeof path !== 'string' || path === '') {
+          close();
+          return;
+        }
+        setBusy(true);
+        Promise.resolve()
+          .then(() => createWorkspace(path))
+          .then((workspace) => {
+            setOpen(false);
+            setBusy(false);
+            setError(null);
+            // The native sidebar's Add workspace action starts a new Session in
+            // the adopted Workspace before leaving the picker; match it here.
+            const workspaceId = workspace?.workspaceId;
+            if (typeof workspaceId === 'string' && workspaceId !== '') {
+              try {
+                startSession(workspaceId);
+              } catch (reason) {
+                console.warn('workspace explorer: open new workspace Session failed', reason);
+              }
+            }
+          })
+          .catch((reason) => fail(reason instanceof Error ? reason.message : String(reason)));
+      };
+
+      const button = flow === undefined
+        ? null
+        : h('button', {
+            type: 'button',
+            className: 'dwe-group-add',
+            'aria-label': t('group.addWorkspace'),
+            title: t('group.addWorkspace'),
+            disabled: busy,
+            onClick: (event) => {
+              event.stopPropagation();
+              setError(null);
+              setOpen(true);
+            },
+          }, projectAddGlyph);
+
+      const overlay = flow === undefined
+        ? null
+        : h(flow.component, {
+            ...flow.props,
+            open,
+            busy,
+            onPicked,
+            onCancel: close,
+            onError: (message) => fail(typeof message === 'string' ? message : String(message)),
+          });
+
+      const notice = error === null
+        ? null
+        : h('p', { className: 'dwe-group-notice', role: 'alert' }, error);
+
+      return { button, overlay, notice };
+    }
+
     // ---------------------------------------------------------------------
     // Page.
     // ---------------------------------------------------------------------
@@ -554,8 +703,9 @@ window.__ModuleLoader__.load({
     // The `main` slot passes the standard `useSessions` / `useWorkspaces` /
     // `useWorkspaceAccess` hooks, `t`, and the `inject` face ({ searchSessions,
     // searchResultLimit, openSession, openWorkspace, startSession,
-    // openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen }) as props.
-    function ExplorerPage({ t, useSessions, useWorkspaces, useWorkspaceAccess, searchSessions, searchResultLimit = 20, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen }) {
+    // openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen,
+    // useDirectoryFlow, createWorkspace }) as props.
+    function ExplorerPage({ t, useSessions, useWorkspaces, useWorkspaceAccess, searchSessions, searchResultLimit = 20, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen, useDirectoryFlow, createWorkspace }) {
       const list = useSessions((s) => s);
       const ws = useWorkspaces((s) => s);
       const [query, setQuery] = React.useState('');
@@ -565,6 +715,7 @@ window.__ModuleLoader__.load({
       // the current query. Re-derived per query, not frozen at mount.
       const [expandedByQuery, setExpandedByQuery] = React.useState({});
       const inputRef = React.useRef(null);
+      const addWorkspace = useAddWorkspace({ t, useDirectoryFlow, createWorkspace, startSession });
 
       React.useEffect(() => {
         if (inputRef.current) inputRef.current.focus();
@@ -637,6 +788,7 @@ window.__ModuleLoader__.load({
           key: 'workspaces',
           label: t('group.workspaces'),
           items: view.workspaces,
+          action: addWorkspace,
           renderRow: (row) => h(WorkspaceRow, { key: row.workspaceId, row, t, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen, useWorkspaceAccess }),
         },
         {
@@ -685,6 +837,7 @@ window.__ModuleLoader__.load({
               t,
               expanded: expanded[group.key],
               onToggle: () => toggleGroup(group.key),
+              action: group.action,
               renderRow: group.renderRow,
             })),
             view.hasMore
@@ -695,32 +848,44 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // One collapsible group: header button (chevron, label, count) + body of rows.
-    function GroupSection({ group, t, expanded, onToggle, renderRow }) {
+    // One collapsible group: header row (chevron, label, count) + optional
+    // trailing action + body of rows. The action's overlay/notice render as
+    // siblings of the row so its dialog never participates in row layout.
+    function GroupSection({ group, t, expanded, onToggle, renderRow, action }) {
       const count = group.items.length;
+      const actionButton = action?.button ?? null;
       return h('section', { className: 'dwe-group' },
-        h('button', {
-          type: 'button',
-          className: 'dwe-group-header',
-          'aria-expanded': expanded,
-          'aria-label': `${group.label}, ${t('group.count', { count })}`,
-          onClick: onToggle,
+        h('div', {
+          className: actionButton === null ? 'dwe-group-head' : 'dwe-group-head dwe-group-head-with-action',
         },
-          h('span', { className: 'dwe-group-chevron', 'aria-hidden': true },
-            h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, focusable: false },
-              h('path', {
-                d: 'M5 6.5l3 3 3-3',
-                fill: 'none',
-                stroke: 'currentColor',
-                strokeWidth: 1.8,
-                strokeLinecap: 'round',
-                strokeLinejoin: 'round',
-              }),
+          h('button', {
+            type: 'button',
+            className: 'dwe-group-header',
+            'aria-expanded': expanded,
+            'aria-label': `${group.label}, ${t('group.count', { count })}`,
+            onClick: onToggle,
+          },
+            h('span', { className: 'dwe-group-chevron', 'aria-hidden': true },
+              h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, focusable: false },
+                h('path', {
+                  d: 'M5 6.5l3 3 3-3',
+                  fill: 'none',
+                  stroke: 'currentColor',
+                  strokeWidth: 1.8,
+                  strokeLinecap: 'round',
+                  strokeLinejoin: 'round',
+                }),
+              ),
             ),
+            h('span', { className: 'dwe-group-label' }, group.label),
+            h('span', { className: 'dwe-group-count' }, t('group.count', { count })),
           ),
-          h('span', { className: 'dwe-group-label' }, group.label),
-          h('span', { className: 'dwe-group-count' }, t('group.count', { count })),
+          actionButton === null
+            ? null
+            : h('div', { className: 'dwe-group-actions' }, actionButton),
         ),
+        action?.notice ?? null,
+        action?.overlay ?? null,
         expanded && count > 0
           ? h('div', { className: 'dwe-group-body' },
               h('ul', { className: 'dwe-group-list' }, group.items.map((item, index) => renderRow(item, index))),
@@ -932,11 +1097,20 @@ window.__ModuleLoader__.load({
       .dwe-group {
         border-bottom: 1px solid var(--dsw-alias-border-l1, transparent);
       }
+      .dwe-group-head {
+        display: flex;
+        align-items: center;
+        border-radius: var(--dsw-radius-sm, 4px);
+      }
+      .dwe-group-head:hover {
+        background: var(--dsw-alias-interactive-bg-hover, transparent);
+      }
       .dwe-group-header {
+        flex: 1 1 auto;
+        min-width: 0;
         display: flex;
         align-items: center;
         gap: 8px;
-        width: 100%;
         box-sizing: border-box;
         padding: 12px 4px;
         border: none;
@@ -947,8 +1121,43 @@ window.__ModuleLoader__.load({
         text-align: left;
         cursor: pointer;
       }
-      .dwe-group-header:hover {
+      .dwe-group-head-with-action .dwe-group-header {
+        padding-right: 40px;
+      }
+      .dwe-group-actions {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 4px 0 0;
+      }
+      /* Native sidebar header-button geometry: 28px hit area, 16px artwork,
+         label-secondary colour, subtle hover fill. */
+      .dwe-group-add {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        border-radius: var(--dsw-radius-sm, 4px);
+        background: transparent;
+        color: var(--dsw-alias-label-secondary, currentColor);
+        cursor: pointer;
+      }
+      .dwe-group-add:hover {
         background: var(--dsw-alias-interactive-bg-hover, transparent);
+        color: var(--dsw-alias-label-primary, inherit);
+      }
+      .dwe-group-add:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      .dwe-group-notice {
+        margin: 0 4px 10px;
+        color: var(--dsw-alias-state-error-primary, var(--dsw-alias-label-secondary, currentColor));
+        font: var(--dsw-font-xxs-12);
       }
       .dwe-group-chevron {
         flex: none;
@@ -1091,7 +1300,8 @@ window.__ModuleLoader__.load({
         outline: 2px solid var(--dsw-alias-state-business-primary);
         outline-offset: 2px;
       }
-      .dwe-row-action:focus-visible {
+      .dwe-row-action:focus-visible,
+      .dwe-group-add:focus-visible {
         outline: 2px solid var(--dsw-alias-state-business-primary);
         outline-offset: -2px;
       }
@@ -1165,12 +1375,29 @@ window.__ModuleLoader__.load({
             );
             return target !== null && target.kind === 'workspace' && target.value.workspaceId === workspaceId;
           },
+          createWorkspace: (path) => ctx.workspaces.create({ path }),
+          hooks: {
+            // The native directory flow the sidebar's own Add workspace button
+            // uses. Re-read on slot changes so the header action appears when
+            // the picker backend mounts and disappears when it unmounts.
+            directoryFlow: {
+              getSnapshot: () => directoryFlowEntry(ctx.slots),
+              subscribe: (listener) => {
+                if (typeof ctx.slots.subscribe !== 'function') return () => {};
+                try {
+                  return ctx.slots.subscribe('sidebar.workspaces.directoryFlow', listener);
+                } catch {
+                  return () => {};
+                }
+              },
+            },
+          },
         }),
       }, ExplorerPage));
     }
 
     return {
-      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus'],
+      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus', 'workspaces'],
       apply,
       __test: {
         sanitizeQuery,
@@ -1195,6 +1422,8 @@ window.__ModuleLoader__.load({
         revealSidebarRow,
         currentMainSessionId,
         workspaceMenuTarget,
+        directoryFlowEntry,
+        directoryFlowFace,
         locales: { en, zh },
       },
     };

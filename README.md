@@ -45,6 +45,14 @@ sidebar, always visible:
 - a **New Session** button that starts a Session in that Workspace, expands the
   native Workspace group, and returns to the conversation view.
 
+The **Workspaces** group header also carries the native sidebar's Add workspace
+button at its right. It uses the same project-plus artwork and hit area, opens
+the same native directory flow the sidebar's plus button uses (the composed
+picker backend unchanged), registers the chosen directory as a Workspace, and
+opens a new Session in it like the native action; a registration failure is
+reported inline. The button is hidden when the composition has no directory
+flow, matching the native sidebar.
+
 ## Requirement
 
 - DSH Web with bundled client plugins enabled (the client module is loaded by

@@ -43,6 +43,14 @@ Release Date: TBD
   conversation view. The New Session button honors the Workspace's
   `session/create` access. The trailing actions share the row's full-width
   hover surface, so the row highlights as one unit.
+- The **Workspaces** group header carries the native sidebar's Add workspace
+  button at its right: the same project-plus artwork in a 28 px hit area, with
+  no text and the localized `Add workspace` label. It opens the same native
+  directory flow the sidebar's plus button uses (the composed picker backend
+  unchanged), registers the chosen directory as a Workspace, then opens a new
+  Session in it exactly like the native action, and reports a registration
+  failure inline. When the composition has no directory flow, the button is
+  hidden exactly like the native sidebar's.
 - Search box with a clear button, auto-focus on open, a 500-code-unit limit, and
   a placeholder of `Search workspaces / sessions` (Chinese: `搜索工作区 / 会话`).
 - Two collapsible result groups — **Workspaces** and **Sessions** — each showing

@@ -21,7 +21,7 @@ const clientSource = readFileSync(path.join(root, 'client.js'), 'utf8');
 // ---------------------------------------------------------------------------
 
 test('module registers the expected inject array and apply', () => {
-  assert.deepEqual(mod.inject, ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus']);
+  assert.deepEqual(mod.inject, ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus', 'workspaces']);
   assert.equal(typeof mod.apply, 'function');
   assert.ok(mod.__test, '__test export present');
 });
@@ -82,6 +82,24 @@ test('static source: workspace row actions and their labels are present', () => 
   assert.ok(clientSource.includes('[data-dsh-glass-float] .dwe-row:hover'), 'the glass hover halo belongs to the whole row');
 });
 
+test('static source: workspaces group header carries the native add-workspace action', () => {
+  assert.ok(clientSource.includes('projectAddGlyph'), 'native plus artwork defined');
+  assert.ok(clientSource.includes('M5.54492 2.06738'), 'native project-add folder path reused');
+  assert.ok(clientSource.includes('dwe-group-add'), 'add button class present');
+  assert.ok(clientSource.includes('dwe-group-actions'), 'header action slot present');
+  assert.ok(clientSource.includes('dwe-group-head-with-action'), 'row reserves space for the action');
+  assert.ok(clientSource.includes("t('group.addWorkspace')"), 'localized add-workspace label used');
+  assert.ok(clientSource.includes("t('group.addWorkspaceFailed'"), 'localized failure notice used');
+  assert.ok(clientSource.includes('directoryFlowEntry'), 'native directory flow entry lookup present');
+  assert.ok(clientSource.includes('directoryFlowFace'), 'native directory flow component/face resolution present');
+  assert.ok(clientSource.includes("'sidebar.workspaces.directoryFlow'"), 'the native sidebar flow slot is reused');
+  assert.ok(clientSource.includes('createWorkspace: (path) => ctx.workspaces.create({ path })'), 'add delegates to the workspace service');
+  assert.ok(clientSource.includes('startSession(workspaceId);'), 'adopting a directory opens a Session like the native action');
+  assert.match(clientSource, /flow === undefined\s*\? null/, 'button and overlay are hidden without a native flow');
+  assert.ok(clientSource.includes('.dwe-group-add:focus-visible'), 'add button keeps a focus ring');
+  assert.ok(clientSource.includes('.dwe-group-add:disabled'), 'add button has a busy state');
+});
+
 test('package.json: version, bundle patch, client flags, no dependencies, scripts', () => {
   const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.equal(pkg.version, '0.0.0');
@@ -113,7 +131,7 @@ test('cordis.patch.yml contains the plugin row id/name', () => {
 test('en/zh dictionaries have identical keys and the required new keys', () => {
   const { en, zh } = mod.__test.locales;
   assert.deepEqual(Object.keys(en).sort(), Object.keys(zh).sort());
-  for (const key of ['group.ungrouped', 'row.openWorkspace', 'row.openSession', 'row.workspaceMenu', 'row.newSession', 'search.hasMore', 'session.untitled']) {
+  for (const key of ['group.ungrouped', 'group.addWorkspace', 'group.addWorkspaceFailed', 'row.openWorkspace', 'row.openSession', 'row.workspaceMenu', 'row.newSession', 'search.hasMore', 'session.untitled']) {
     assert.ok(key in en, `en has ${key}`);
     assert.ok(key in zh, `zh has ${key}`);
   }
@@ -128,6 +146,10 @@ test('en/zh dictionaries have identical keys and the required new keys', () => {
   assert.equal(zh['group.count'], '{count}');
   assert.equal(en['search.placeholder'], 'Search workspaces / sessions');
   assert.equal(zh['search.placeholder'], '搜索工作区 / 会话');
+  assert.equal(en['group.addWorkspace'], 'Add workspace');
+  assert.equal(zh['group.addWorkspace'], '添加工作区');
+  assert.ok(en['group.addWorkspaceFailed'].includes('{message}'), 'en add failure carries the reason');
+  assert.ok(zh['group.addWorkspaceFailed'].includes('{message}'), 'zh add failure carries the reason');
 });
 
 test('__test exposes the pure helpers as functions', () => {
@@ -137,6 +159,7 @@ test('__test exposes the pure helpers as functions', () => {
     'sessionMatchTitle', 'sessionDisplayTitle', 'owningWorkspace', 'owningParentFolder',
     'groupKeysForWorkspace', 'groupKeysForSession', 'sidebarViewActions',
     'expandWorkspaceGroups', 'revealSidebarRow', 'currentMainSessionId', 'workspaceMenuTarget',
+    'directoryFlowEntry', 'directoryFlowFace',
   ]) {
     assert.equal(typeof mod.__test[name], 'function', `${name} is a function`);
   }
@@ -153,6 +176,34 @@ test('workspaceMenuTarget: builds the native workspace context-menu target', () 
   assert.equal(target.value.workspaceId, 'w1');
   assert.equal(target.value.path, '/work/alpha');
   assert.equal(target.value.displayTitle, 'Alpha');
+});
+
+test('directoryFlowEntry: rendering winner first, entries fallback, failures degrade to undefined', () => {
+  const { directoryFlowEntry } = mod.__test;
+  const entry = { component: () => null, inject: () => ({ pick: async () => null }) };
+  assert.equal(directoryFlowEntry({ entriesOfSlot: () => [entry] }), entry, 'entriesOfSlot winner wins');
+  assert.equal(directoryFlowEntry({ entries: () => [entry] }), entry, 'entries fallback on older slot layers');
+  assert.equal(directoryFlowEntry({ entriesOfSlot: () => [] }), undefined, 'no registration');
+  assert.equal(directoryFlowEntry({ entriesOfSlot: () => { throw new Error('slot layer'); } }), undefined,
+    'slot lookup failures degrade to no action');
+  assert.equal(directoryFlowEntry(undefined), undefined, 'absent slots');
+});
+
+test('directoryFlowFace: returns the native component with its plain injected face', () => {
+  const { directoryFlowFace } = mod.__test;
+  const component = () => null;
+  const pick = async () => '/work/delta';
+  const entry = { component, inject: () => ({ pick }) };
+  const face = directoryFlowFace(entry);
+  assert.equal(face.component, component);
+  assert.equal(face.props.pick, pick, 'plain injected props are passed through');
+  assert.equal(directoryFlowFace({ component }), undefined, 'missing injection is unusable');
+  assert.equal(directoryFlowFace({ component, inject: () => undefined }), undefined, 'empty face is unusable');
+  assert.equal(directoryFlowFace({ component, inject: () => ({ hooks: {} }) }), undefined,
+    'render-time hook injection is not guessed');
+  assert.equal(directoryFlowFace({ component, inject: () => { throw new Error('inject'); } }), undefined,
+    'injection failures degrade to no action');
+  assert.equal(directoryFlowFace(undefined), undefined, 'absent entry');
 });
 
 // ---------------------------------------------------------------------------
@@ -548,10 +599,14 @@ test('apply: opening from the explorer expands groups then delegates navigation'
   const starts = [];
   const menus = [];
   const closes = [];
+  const created = [];
+  const flowEntry = { component: () => null, inject: () => ({ pick: async () => '/work/delta' }) };
   const slots = {
     entries: (key) => (key === 'sidebar.workspaces'
       ? [{ store: { create: () => ({ actions: { setGroupExpanded: (key, value) => expanded.push([key, value]) } }) } }]
-      : []),
+      : key === 'sidebar.workspaces.directoryFlow'
+        ? [flowEntry]
+        : []),
     inject: (key, callback) => { callback(); return () => {}; },
     register: (options, component) => { registered[options.name] = { options, component }; return () => {}; },
   };
@@ -563,6 +618,9 @@ test('apply: opening from the explorer expands groups then delegates navigation'
       search: async () => ({ ok: true, value: { items: [], hasMore: false } }),
       searchResultLimit: 20,
       list: { getSnapshot: () => ({ byId: {} }) },
+    },
+    workspaces: {
+      create: async (input) => { created.push(input); return { workspaceId: 'w4', path: input.path }; },
     },
     uiWorkspace: {
       openSession: (sessionId) => opens.push(['session', sessionId]),
@@ -602,4 +660,11 @@ test('apply: opening from the explorer expands groups then delegates navigation'
   assert.deepEqual(menus[0].options, { button: 'btn' });
   face.closeWorkspaceMenu();
   assert.equal(closes.length, 1, 'closeWorkspaceMenu delegates to contextMenus.close');
+
+  // Add-workspace face: the native directory flow entry and workspace service.
+  assert.equal(face.hooks.directoryFlow.getSnapshot(), flowEntry, 'native directory flow entry is exposed');
+  const unsubscribe = face.hooks.directoryFlow.subscribe(() => {});
+  assert.equal(typeof unsubscribe, 'function', 'slot subscription degrades to a no-op without slot subscribe');
+  await face.createWorkspace('/work/delta');
+  assert.deepEqual(created, [{ path: '/work/delta' }], 'add delegates the picked directory to workspaces.create');
 });
