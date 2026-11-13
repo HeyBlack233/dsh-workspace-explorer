@@ -1,0 +1,4 @@
+# Inserts this plugin into a DSH profile's layer stack.
+- insert:
+    - id: dsh-workspace-explorer
+      name: dsh-workspace-explorer
