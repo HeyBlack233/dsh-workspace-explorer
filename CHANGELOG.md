@@ -61,8 +61,10 @@ Release Date: TBD
   excluding archived, blank, and subagent Sessions; Workspaces with no visible
   Session sort last, and equal timestamps fall back to the Host order. The
   choice affects only the Workspaces group (search results included) — the
-  Sessions group keeps its own order — and lives in page memory only, so
-  reloading or reopening the page returns to Manual.
+  Sessions group keeps its own order. It is stored in the plugin's volatile
+  `orderBy` Config, so it survives page reloads and browser restarts, is
+  shared by every browser using the same profile, and applies live; it can
+  also be edited in the profile configuration.
 - Search box with a clear button, auto-focus on open, a 500-code-unit limit, and
   a placeholder of `Search workspaces / sessions` (Chinese: `搜索工作区 / 会话`).
 - Two collapsible result groups — **Workspaces** and **Sessions** — each showing

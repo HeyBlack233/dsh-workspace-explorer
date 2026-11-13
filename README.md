@@ -64,14 +64,18 @@ sidebar's. It opens a menu with a single **Order by** group:
   fall back to the Host order
 
 The choice affects only the Workspaces group (search results included); the
-Sessions group keeps its own order. It lives in page memory only, so reloading
-or reopening the page returns to Manual.
+Sessions group keeps its own order. It is stored in the plugin's volatile
+`orderBy` Config, so it survives page reloads and browser restarts, is shared by
+every browser using the same profile, and applies live; it can also be edited
+in the profile configuration.
 
 ## Requirement
 
 - DSH Web with bundled client plugins enabled (the client module is loaded by
   the browser module loader; `dsh.client.inject` pulls in the required client
   packages).
+- The DSH settings service from the base web composition, which persists the
+  volatile `orderBy` Config.
 
 ## Installation
 
@@ -84,13 +88,15 @@ dsh plugin --profile web add github:HeyBlack233/dsh-workspace-explorer
 
 pnpm fetches and installs the package from GitHub, and DSH adds its bundle to
 the profile's layer stack; `cordis.patch.yml` inserts the
-`dsh-workspace-explorer` plugin row. The package has no runtime npm
-dependencies and no build step, so no build-script approval is needed. Restart
+`dsh-workspace-explorer` plugin row. The package has one runtime npm
+dependency, `@deepseek-ai/schemastery` (used by its Host Config schema), and no
+build step, so no build-script approval is needed. Restart
 DSH Web (or let its HMR watcher reload) to pick up the new bundle.
 
 ## Layout
 
-- `index.js` — host half (no-op; the client module owns all UI)
+- `index.js` — host half: declares the volatile `orderBy` Config; the client
+  module owns all UI
 - `client.js` — browser module-loader module: sidebar icon, search/browse page,
   pure view-derivation helpers, styles
 - `test/client.test.js` — Node test suite for the pure helpers and module wiring

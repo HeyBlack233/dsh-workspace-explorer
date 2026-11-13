@@ -52,13 +52,16 @@
   排在最后，更新时间相同或没有可见会话时回退到宿主顺序。
 
 该选择只影响“工作区”分组（搜索结果中的工作区同样生效），“会话”分组的
-顺序保持不变；选择只保存在当前页面内存中，刷新或重新打开页面后回到
-“手动排序”。
+顺序保持不变；选择存储在插件可热更新的 `orderBy` Config 中，因此刷新或
+重启浏览器后仍会保留，同一个 profile 下的所有浏览器共享该值，并会实时生效；
+也可以直接在 profile 配置中修改。
 
 ## 运行要求
 
 - 启用捆绑客户端插件的 DSH Web（客户端模块由浏览器模块加载器加载；
   `dsh.client.inject` 会引入所需的客户端包）。
+- 基础 Web 组合中的 DSH settings 服务，用于持久化可热更新的 `orderBy`
+  Config。
 
 ## 安装
 
@@ -69,13 +72,14 @@ dsh plugin --profile web add github:HeyBlack233/dsh-workspace-explorer
 ```
 
 pnpm 会从 GitHub 拉取并安装该包，DSH 会把它的捆绑包加入 profile 的图层栈；
-`cordis.patch.yml` 负责插入 `dsh-workspace-explorer` 插件行。包本身没有
-运行时 npm 依赖，也没有构建步骤，因此无需批准构建脚本。重启 DSH Web
+`cordis.patch.yml` 负责插入 `dsh-workspace-explorer` 插件行。包本身有
+一个运行时 npm 依赖 `@deepseek-ai/schemastery`（用于宿主的 Config schema），
+但没有构建步骤，因此无需批准构建脚本。重启 DSH Web
 （或等待其 HMR 监听器重载）即可加载新捆绑包。
 
 ## 文件结构
 
-- `index.js` — 宿主半边（空操作；所有 UI 由客户端模块负责）
+- `index.js` — 宿主半边：声明可热更新的 `orderBy` Config；所有 UI 由客户端模块负责
 - `client.js` — 浏览器模块加载器模块：侧边栏图标、搜索/浏览页面、纯视图
   派生辅助函数、样式
 - `test/client.test.js` — 针对纯辅助函数与模块接线的 Node 测试套件

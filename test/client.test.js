@@ -15,13 +15,14 @@ const mod = definition.factory((id) => {
 });
 
 const clientSource = readFileSync(path.join(root, 'client.js'), 'utf8');
+const hostSource = readFileSync(path.join(root, 'index.js'), 'utf8');
 
 // ---------------------------------------------------------------------------
 // Module wiring
 // ---------------------------------------------------------------------------
 
 test('module registers the expected inject array and apply', () => {
-  assert.deepEqual(mod.inject, ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus', 'workspaces']);
+  assert.deepEqual(mod.inject, ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus', 'workspaces', 'remote', 'remote.settings']);
   assert.equal(typeof mod.apply, 'function');
   assert.ok(mod.__test, '__test export present');
 });
@@ -125,14 +126,30 @@ test('static source: workspaces group header carries the View options / Order by
     'deriveView memo depends on orderBy');
 });
 
-test('package.json: version, bundle patch, client flags, no dependencies, scripts', () => {
+test('static source: order preference persists through the volatile plugin Config', () => {
+  assert.ok(hostSource.includes("from '@deepseek-ai/schemastery'"), 'host imports schemastery');
+  assert.ok(hostSource.includes("orderBy: z.union(['manual', 'updated']).default('manual').volatile()"),
+    'host Config declares the live orderBy field');
+  assert.ok(clientSource.includes("const SETTINGS_NS = 'dsh-workspace-explorer'"), 'settings namespace is pinned');
+  assert.ok(clientSource.includes('ctx.remote.settings'), 'client uses the settings Remote');
+  assert.ok(clientSource.includes('remote.settings.describe'), 'client reads the settings namespace');
+  assert.ok(clientSource.includes('remote.settings.update'), 'client writes the orderBy field');
+  assert.ok(clientSource.includes('orderByFromSettings'), 'settings payload mapping is used');
+  assert.ok(clientSource.includes('useOrderByPreference'), 'the page owns persisted order state');
+  assert.ok(clientSource.includes('orderByPreference,'), 'preference load/save is injected into the page');
+  assert.ok(!clientSource.includes('localStorage'), 'no browser-local persistence path');
+});
+
+test('package.json: version, bundle patch, client flags, one runtime dependency, scripts', () => {
   const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.equal(pkg.version, '0.0.0');
   assert.equal(pkg.dsh.bundle.patch, './cordis.patch.yml');
   assert.equal(pkg.dsh.client.platform, 'web');
   assert.equal(pkg.dsh.client.immediately, true);
+  assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-api-remotes'), 'remote client injected');
   assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-context-menu'), 'context menu client injected');
-  for (const key of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+  assert.deepEqual(pkg.dependencies, { '@deepseek-ai/schemastery': '~3.19.0' });
+  for (const key of ['devDependencies', 'peerDependencies', 'optionalDependencies']) {
     assert.equal(pkg[key], undefined, `no ${key}`);
   }
   assert.equal(typeof pkg.scripts, 'object');
@@ -188,7 +205,7 @@ test('en/zh dictionaries have identical keys and the required new keys', () => {
 test('__test exposes the pure helpers as functions', () => {
   for (const name of [
     'sanitizeQuery', 'deriveView', 'selectTopSessionId', 'recentSessions',
-    'latestSessionUpdatedAt', 'orderWorkspaces',
+    'latestSessionUpdatedAt', 'orderWorkspaces', 'normalizeOrderBy', 'orderByFromSettings',
     'mergeSessionResults', 'localSessionMatches', 'nextExpansion', 'resolveExpanded',
     'sessionMatchTitle', 'sessionDisplayTitle', 'owningWorkspace', 'owningParentFolder',
     'groupKeysForWorkspace', 'groupKeysForSession', 'sidebarViewActions',
@@ -561,6 +578,25 @@ test('recentSessions: visible recency order, cap, tie-break by id', () => {
     t3: { id: 't3', title: 'three', blank: false, updatedAt: 9 },
   } };
   assert.deepEqual(recentSessions(tied, [], 20).map((s) => s.id), ['t3', 't1', 't2'], 'id ascending on tie');
+});
+
+test('normalizeOrderBy / orderByFromSettings: only contract values reach the page', () => {
+  const { normalizeOrderBy, orderByFromSettings } = mod.__test;
+  assert.equal(normalizeOrderBy('manual'), 'manual');
+  assert.equal(normalizeOrderBy('updated'), 'updated');
+  for (const value of [undefined, null, '', 'Manual', 'last-updated', 1]) {
+    assert.equal(normalizeOrderBy(value), undefined, `rejects ${String(value)}`);
+  }
+  const namespaces = [
+    { ns: 'other-plugin', value: { orderBy: 'updated' } },
+    { ns: 'dsh-workspace-explorer', value: { orderBy: 'updated' } },
+  ];
+  assert.equal(orderByFromSettings({ namespaces }), 'updated', 'reads the plugin namespace');
+  assert.equal(orderByFromSettings({ namespaces: [{ ns: 'dsh-workspace-explorer', value: { orderBy: 'manual' } }] }), 'manual');
+  assert.equal(orderByFromSettings({ namespaces: [{ ns: 'dsh-workspace-explorer', value: { orderBy: 'bogus' } }] }), undefined, 'invalid field');
+  assert.equal(orderByFromSettings({ namespaces: [{ ns: 'dsh-workspace-explorer', value: {} }] }), undefined, 'missing field');
+  assert.equal(orderByFromSettings({ namespaces: [] }), undefined, 'namespace absent');
+  assert.equal(orderByFromSettings(undefined), undefined, 'missing payload');
 });
 
 test('latestSessionUpdatedAt: max visible numeric updatedAt; invisible, missing, non-numeric skipped', () => {

@@ -10,6 +10,8 @@ window.__ModuleLoader__.load({
     const SEARCH_QUERY_MAX_CODE_UNITS = 500;
     /** Pause between the latest keystroke and a Host content-search request. */
     const SEARCH_DEBOUNCE_MS = 250;
+    /** Profile entry id whose volatile Config carries the Workspaces order. */
+    const SETTINGS_NS = 'dsh-workspace-explorer';
 
     // Runtime en/zh dictionaries. Every visible string goes through t().
     const en = {
@@ -210,6 +212,22 @@ window.__ModuleLoader__.load({
         if (lb === undefined) return -1;
         return la > lb ? -1 : 1;
       });
+    }
+
+    /** Persisted Order-by value, or undefined for anything outside the contract. */
+    function normalizeOrderBy(value) {
+      return value === 'manual' || value === 'updated' ? value : undefined;
+    }
+
+    /**
+     * Order-by value from a settings.describe() payload, or undefined when the
+     * plugin namespace is absent or its field is missing/invalid.
+     */
+    function orderByFromSettings(describeValue) {
+      const namespaces = describeValue?.namespaces;
+      if (!Array.isArray(namespaces)) return undefined;
+      const target = namespaces.find((entry) => entry?.ns === SETTINGS_NS);
+      return normalizeOrderBy(target?.value?.orderBy);
     }
 
     /**
@@ -964,6 +982,51 @@ window.__ModuleLoader__.load({
     }
 
     // ---------------------------------------------------------------------
+    // Persisted Workspaces ordering (volatile Host plugin Config).
+    // ---------------------------------------------------------------------
+
+    /**
+     * Controlled Order-by state backed by the plugin's volatile Config: load
+     * the saved value once on mount, then save every pick. A pick made before
+     * the initial read resolves wins; an unavailable or read-only settings
+     * service degrades to page memory.
+     */
+    function useOrderByPreference(preference) {
+      const [orderBy, setOrderBy] = React.useState('manual');
+      const touched = React.useRef(false);
+      const load = preference?.load;
+      const save = preference?.save;
+
+      React.useEffect(() => {
+        if (typeof load !== 'function') return;
+        let cancelled = false;
+        Promise.resolve().then(load).then((value) => {
+          if (cancelled || touched.current) return;
+          const normalized = normalizeOrderBy(value);
+          if (normalized !== undefined) setOrderBy(normalized);
+        }).catch((reason) => {
+          console.warn('workspace explorer: load order preference failed', reason);
+        });
+        return () => { cancelled = true; };
+      }, [load]);
+
+      const pick = (value) => {
+        const normalized = normalizeOrderBy(value);
+        if (normalized === undefined) return;
+        touched.current = true;
+        setOrderBy(normalized);
+        if (typeof save !== 'function') return;
+        Promise.resolve().then(() => save(normalized)).then((saved) => {
+          if (saved === false) console.warn('workspace explorer: order preference was not persisted');
+        }).catch((reason) => {
+          console.warn('workspace explorer: save order preference failed', reason);
+        });
+      };
+
+      return [orderBy, pick];
+    }
+
+    // ---------------------------------------------------------------------
     // Page.
     // ---------------------------------------------------------------------
 
@@ -971,15 +1034,14 @@ window.__ModuleLoader__.load({
     // `useWorkspaceAccess` hooks, `t`, and the `inject` face ({ searchSessions,
     // searchResultLimit, openSession, openWorkspace, startSession,
     // openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen,
-    // useDirectoryFlow, createWorkspace }) as props.
-    function ExplorerPage({ t, useSessions, useWorkspaces, useWorkspaceAccess, searchSessions, searchResultLimit = 20, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen, useDirectoryFlow, createWorkspace }) {
+    // useDirectoryFlow, createWorkspace, orderByPreference }) as props.
+    function ExplorerPage({ t, useSessions, useWorkspaces, useWorkspaceAccess, searchSessions, searchResultLimit = 20, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen, useDirectoryFlow, createWorkspace, orderByPreference }) {
       const list = useSessions((s) => s);
       const ws = useWorkspaces((s) => s);
       const [query, setQuery] = React.useState('');
       const [remote, setRemote] = React.useState({ query: '', status: 'idle', items: [], hasMore: false });
-      // Workspaces group ordering; defaults to Host order and resets when the
-      // page remounts (no persistence).
-      const [orderBy, setOrderBy] = React.useState('manual');
+      // Workspaces group ordering; persisted in the plugin's volatile Config.
+      const [orderBy, setOrderBy] = useOrderByPreference(orderByPreference);
       // Expansion overrides keyed by the normalized query; {} means auto:
       // a group is expanded iff it has items, unless the user toggled it for
       // the current query. Re-derived per query, not frozen at mount.
@@ -1675,11 +1737,33 @@ window.__ModuleLoader__.load({
         locale: NS,
         label: () => t('panel.label'),
       }, PanelIcon));
+      // Read/write the persisted Workspaces order through the Host's settings
+      // Remote. The Config field is volatile, so a write updates in place; a
+      // failed read or write leaves the page on its in-memory selection.
+      const orderByPreference = {
+        load: async () => {
+          const result = await ctx.remote.settings.describe();
+          if (!result.ok) throw new Error(result.error.message);
+          return orderByFromSettings(result.value);
+        },
+        save: async (value) => {
+          const normalized = normalizeOrderBy(value);
+          if (normalized === undefined) return false;
+          const described = await ctx.remote.settings.describe();
+          if (!described.ok) throw new Error(described.error.message);
+          const target = (described.value?.namespaces ?? []).find((entry) => entry?.ns === SETTINGS_NS);
+          if (target === undefined) return false;
+          const result = await ctx.remote.settings.update(SETTINGS_NS, { orderBy: normalized }, target.revision);
+          if (!result.ok) throw new Error(result.error.message);
+          return true;
+        },
+      };
       ctx.slots.inject('main', () => ctx.slots.register({
         name: 'main',
         key: PANEL_ID,
         locale: NS,
         inject: () => ({
+          orderByPreference,
           searchSessions: async (query, signal) => {
             const result = await ctx.sessions.search(query, signal);
             if (!result.ok) throw new Error(result.error.message);
@@ -1750,7 +1834,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus', 'workspaces'],
+      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'contextMenus', 'workspaces', 'remote', 'remote.settings'],
       apply,
       __test: {
         sanitizeQuery,
@@ -1764,6 +1848,8 @@ window.__ModuleLoader__.load({
         recentSessions,
         latestSessionUpdatedAt,
         orderWorkspaces,
+        normalizeOrderBy,
+        orderByFromSettings,
         selectTopSessionId,
         deriveView,
         nextExpansion,

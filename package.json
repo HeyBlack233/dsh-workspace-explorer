@@ -18,12 +18,16 @@
     "./package.json": "./package.json"
   },
   "files": ["index.js", "client.js", "cordis.patch.yml", "locale", "icon.svg", "README.md", "README.zh.md", "CHANGELOG.md"],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.19.0"
+  },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
       "platform": "web",
       "immediately": true,
       "inject": [
+        "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
