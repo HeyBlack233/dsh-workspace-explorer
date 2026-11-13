@@ -100,6 +100,31 @@ test('static source: workspaces group header carries the native add-workspace ac
   assert.ok(clientSource.includes('.dwe-group-add:disabled'), 'add button has a busy state');
 });
 
+test('static source: workspaces group header carries the View options / Order by menu', () => {
+  assert.ok(clientSource.includes('viewOptionsGlyph'), 'sliders artwork defined');
+  assert.ok(clientSource.includes('M2.3 5h5.85M12.05 5h1.65'), 'native sliders path reused');
+  assert.ok(clientSource.includes('ViewOptionsMenu'), 'view options component present');
+  assert.ok(clientSource.includes('ORDER_BY_OPTIONS'), 'order-by choices defined');
+  assert.ok(clientSource.includes('data-view-options-trigger'), 'view options trigger data attribute present');
+  assert.ok(clientSource.includes('dwe-group-view'), 'view options trigger class present');
+  assert.ok(clientSource.includes('dwe-view-menu'), 'order-by menu class present');
+  assert.ok(clientSource.includes('data-order-by'), 'menu items carry the order-by attribute');
+  assert.ok(clientSource.includes("role: 'menu'"), 'menu role declared');
+  assert.ok(clientSource.includes('menuitemradio'), 'radio menu items declared');
+  assert.ok(clientSource.includes('aria-checked'), 'menu items declare their checked state');
+  assert.ok(clientSource.includes("t('viewOptions.label')"), 'view options label used');
+  assert.ok(clientSource.includes("t('orderBy.label')"), 'order-by label used');
+  assert.ok(clientSource.includes("t(option.labelKey)"), 'option labels render through the translator');
+  assert.ok(clientSource.includes("labelKey: 'orderBy.manual'"), 'manual option wired');
+  assert.ok(clientSource.includes("labelKey: 'orderBy.updated'"), 'updated option wired');
+  assert.ok(clientSource.includes('leadingAction: h(ViewOptionsMenu'), 'view options wired as the workspaces leading action');
+  assert.equal(clientSource.match(/leadingAction: h\(ViewOptionsMenu/g).length, 1, 'ViewOptionsMenu appears only in the Workspaces group');
+  assert.match(clientSource, /leadingAction === undefined \|\| leadingAction === null \? null : leadingAction,\s*actionButton/,
+    'GroupSection renders the leading action before the trailing action');
+  assert.match(clientSource, /list,\s*ws,\s*query,\s*content,\s*searchResultLimit,\s*orderBy/,
+    'deriveView memo depends on orderBy');
+});
+
 test('package.json: version, bundle patch, client flags, no dependencies, scripts', () => {
   const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.equal(pkg.version, '0.0.0');
@@ -131,7 +156,7 @@ test('cordis.patch.yml contains the plugin row id/name', () => {
 test('en/zh dictionaries have identical keys and the required new keys', () => {
   const { en, zh } = mod.__test.locales;
   assert.deepEqual(Object.keys(en).sort(), Object.keys(zh).sort());
-  for (const key of ['group.ungrouped', 'group.addWorkspace', 'group.addWorkspaceFailed', 'row.openWorkspace', 'row.openSession', 'row.workspaceMenu', 'row.newSession', 'search.hasMore', 'session.untitled']) {
+  for (const key of ['group.ungrouped', 'group.addWorkspace', 'group.addWorkspaceFailed', 'row.openWorkspace', 'row.openSession', 'row.workspaceMenu', 'row.newSession', 'search.hasMore', 'session.untitled', 'viewOptions.label', 'orderBy.label', 'orderBy.manual', 'orderBy.updated']) {
     assert.ok(key in en, `en has ${key}`);
     assert.ok(key in zh, `zh has ${key}`);
   }
@@ -150,11 +175,20 @@ test('en/zh dictionaries have identical keys and the required new keys', () => {
   assert.equal(zh['group.addWorkspace'], '添加工作区');
   assert.ok(en['group.addWorkspaceFailed'].includes('{message}'), 'en add failure carries the reason');
   assert.ok(zh['group.addWorkspaceFailed'].includes('{message}'), 'zh add failure carries the reason');
+  assert.equal(en['viewOptions.label'], 'View options');
+  assert.equal(zh['viewOptions.label'], '视图选项');
+  assert.equal(en['orderBy.label'], 'Order by');
+  assert.equal(zh['orderBy.label'], '排序方式');
+  assert.equal(en['orderBy.manual'], 'Manual');
+  assert.equal(zh['orderBy.manual'], '手动排序');
+  assert.equal(en['orderBy.updated'], 'Last updated');
+  assert.equal(zh['orderBy.updated'], '最近更新');
 });
 
 test('__test exposes the pure helpers as functions', () => {
   for (const name of [
     'sanitizeQuery', 'deriveView', 'selectTopSessionId', 'recentSessions',
+    'latestSessionUpdatedAt', 'orderWorkspaces',
     'mergeSessionResults', 'localSessionMatches', 'nextExpansion', 'resolveExpanded',
     'sessionMatchTitle', 'sessionDisplayTitle', 'owningWorkspace', 'owningParentFolder',
     'groupKeysForWorkspace', 'groupKeysForSession', 'sidebarViewActions',
@@ -388,6 +422,87 @@ test('deriveView: 25 local title matches overflow the 20-result cap and report h
   assert.equal(view.hasMore, true, 'local overflow beyond limit still reports hasMore');
 });
 
+test('deriveView: orderBy re-orders workspaces only; sessions stay on recency', () => {
+  const orderSummaries = {
+    sa1: { id: 'sa1', title: 'Alpha session', blank: false, updatedAt: 100 },
+    sb1: { id: 'sb1', title: 'Beta session', blank: false, updatedAt: 300 },
+    sAr: { id: 'sAr', title: 'Archived big', blank: false, updatedAt: 999 },
+    sBl: { id: 'sBl', title: 'Blank big', blank: true, updatedAt: 900 },
+    sSu: { id: 'sSu', title: 'Subagent big', blank: false, origin: 'subagent', updatedAt: 800 },
+    sCr: { id: 'sCr', title: 'Ceph archived', blank: false, updatedAt: 500 },
+  };
+  const orderList = { ids: ['sa1', 'sb1', 'sAr', 'sBl', 'sSu', 'sCr'], byId: orderSummaries };
+  const orderWorkspaces = {
+    items: [
+      { workspaceId: 'wA', path: '/work/alpha', title: 'Alpha', sessionIds: ['sa1'], createdAt: '2026-01-01', updatedAt: '2026-01-02' },
+      // B also owns archived (999), blank (900), and subagent (800) Sessions;
+      // none of them may count toward the latest visible update (300).
+      { workspaceId: 'wB', path: '/work/beta', title: 'Beta', sessionIds: ['sb1', 'sAr', 'sBl', 'sSu'], createdAt: '2026-01-01', updatedAt: '2026-01-02' },
+      // C owns only an archived Session: no visible Sessions, trails the sort.
+      { workspaceId: 'wC', path: '/work/ceph', title: 'Ceph', sessionIds: ['sCr'], createdAt: '2026-01-01', updatedAt: '2026-01-02' },
+    ],
+    pinnedSessionIds: [],
+    archivedSessionIds: ['sAr', 'sCr'],
+  };
+  const base = {
+    list: orderList,
+    workspaces: orderWorkspaces,
+    query: '',
+    content: { items: [], hasMore: false },
+    limit: 20,
+    ungroupedLabel: 'Ungrouped',
+    untitledLabel: 'Untitled',
+  };
+
+  const manual = mod.__test.deriveView({ ...base, orderBy: 'manual' });
+  const updated = mod.__test.deriveView({ ...base, orderBy: 'updated' });
+  assert.deepEqual(manual.workspaces.map((w) => w.workspaceId), ['wA', 'wB', 'wC'], 'manual keeps host order');
+  assert.deepEqual(updated.workspaces.map((w) => w.workspaceId), ['wB', 'wA', 'wC'],
+    'updated sorts newest first; archived/blank/subagent ignored; no-visible-session last');
+  assert.deepEqual(manual.sessions.map((s) => s.id), ['sb1', 'sa1'], 'browse sessions follow recency');
+  assert.deepEqual(updated.sessions.map((s) => s.id), manual.sessions.map((s) => s.id),
+    'orderBy never touches session order');
+});
+
+test('deriveView: search filters first, then orderBy applies to the survivors', () => {
+  const orderSummaries = {
+    sa1: { id: 'sa1', title: 'Alpha session', blank: false, updatedAt: 100 },
+    sb1: { id: 'sb1', title: 'Beta session', blank: false, updatedAt: 300 },
+    sAr: { id: 'sAr', title: 'Archived big', blank: false, updatedAt: 999 },
+    sBl: { id: 'sBl', title: 'Blank big', blank: true, updatedAt: 900 },
+    sSu: { id: 'sSu', title: 'Subagent big', blank: false, origin: 'subagent', updatedAt: 800 },
+    sCr: { id: 'sCr', title: 'Ceph archived', blank: false, updatedAt: 500 },
+  };
+  const orderList = { ids: ['sa1', 'sb1', 'sAr', 'sBl', 'sSu', 'sCr'], byId: orderSummaries };
+  const orderWorkspaces = {
+    items: [
+      { workspaceId: 'wA', path: '/work/alpha', title: 'Alpha', sessionIds: ['sa1'], createdAt: '2026-01-01', updatedAt: '2026-01-02' },
+      { workspaceId: 'wB', path: '/work/beta', title: 'Beta', sessionIds: ['sb1', 'sAr', 'sBl', 'sSu'], createdAt: '2026-01-01', updatedAt: '2026-01-02' },
+      { workspaceId: 'wC', path: '/work/ceph', title: 'Ceph', sessionIds: ['sCr'], createdAt: '2026-01-01', updatedAt: '2026-01-02' },
+    ],
+    pinnedSessionIds: [],
+    archivedSessionIds: ['sAr', 'sCr'],
+  };
+  // "a" matches Alpha (wA) and Beta (wB), never Ceph (wC).
+  const base = {
+    list: orderList,
+    workspaces: orderWorkspaces,
+    query: 'a',
+    content: { items: [], hasMore: false },
+    limit: 20,
+    ungroupedLabel: 'Ungrouped',
+    untitledLabel: 'Untitled',
+  };
+
+  const manual = mod.__test.deriveView({ ...base, orderBy: 'manual' });
+  const updated = mod.__test.deriveView({ ...base, orderBy: 'updated' });
+  assert.deepEqual(manual.workspaces.map((w) => w.workspaceId), ['wA', 'wB'], 'non-matching workspace filtered before ordering');
+  assert.deepEqual(updated.workspaces.map((w) => w.workspaceId), ['wB', 'wA'], 'search survivors keep the updated order');
+  assert.deepEqual(updated.sessions.map((s) => s.id), ['sb1', 'sa1'], 'search sessions follow local recency');
+  assert.deepEqual(updated.sessions.map((s) => s.id), manual.sessions.map((s) => s.id),
+    'orderBy never touches session order under search');
+});
+
 // ---------------------------------------------------------------------------
 // Helper-level tests
 // ---------------------------------------------------------------------------
@@ -446,6 +561,66 @@ test('recentSessions: visible recency order, cap, tie-break by id', () => {
     t3: { id: 't3', title: 'three', blank: false, updatedAt: 9 },
   } };
   assert.deepEqual(recentSessions(tied, [], 20).map((s) => s.id), ['t3', 't1', 't2'], 'id ascending on tie');
+});
+
+test('latestSessionUpdatedAt: max visible numeric updatedAt; invisible, missing, non-numeric skipped', () => {
+  const { latestSessionUpdatedAt } = mod.__test;
+  const sessions = {
+    v1: { id: 'v1', title: 'one', blank: false, updatedAt: 100 },
+    v2: { id: 'v2', title: 'two', blank: false, updatedAt: 300 },
+    ar: { id: 'ar', title: 'archived', blank: false, updatedAt: 999 },
+    bl: { id: 'bl', title: 'blank', blank: true, updatedAt: 900 },
+    su: { id: 'su', title: 'subagent', blank: false, origin: 'subagent', updatedAt: 800 },
+    nn: { id: 'nn', title: 'non-number', blank: false, updatedAt: 'recent' },
+  };
+  const list = { ids: ['v1', 'v2', 'ar', 'bl', 'su', 'nn'], byId: sessions };
+  const workspace = { workspaceId: 'w', path: '/w', title: '', sessionIds: ['v1', 'v2', 'ar', 'bl', 'su', 'nn', 'ghost'] };
+  assert.equal(latestSessionUpdatedAt(workspace, list, ['ar']), 300,
+    'max visible numeric wins; archived/blank/subagent, missing id, non-numeric ignored');
+  assert.equal(latestSessionUpdatedAt({ ...workspace, sessionIds: [] }, list, ['ar']), undefined, 'no sessions');
+  assert.equal(latestSessionUpdatedAt({ ...workspace, sessionIds: ['ar', 'bl', 'su'] }, list, ['ar']), undefined,
+    'only invisible sessions');
+  assert.equal(latestSessionUpdatedAt({ ...workspace, sessionIds: ['ghost'] }, list, ['ar']), undefined,
+    'missing ids only');
+});
+
+test('orderWorkspaces: manual/unknown keep host order, updated re-sorts, ties and no-session trail', () => {
+  const { orderWorkspaces } = mod.__test;
+  const sessions = {
+    a1: { id: 'a1', title: 'A', blank: false, updatedAt: 100 },
+    b1: { id: 'b1', title: 'B', blank: false, updatedAt: 300 },
+    t1: { id: 't1', title: 'T1', blank: false, updatedAt: 50 },
+    t2: { id: 't2', title: 'T2', blank: false, updatedAt: 50 },
+    t3: { id: 't3', title: 'T3', blank: false, updatedAt: 200 },
+  };
+  const list = { ids: ['a1', 'b1', 't1', 't2', 't3'], byId: sessions };
+  const a = { workspaceId: 'A', path: '/a', title: 'A', sessionIds: ['a1'] };
+  const b = { workspaceId: 'B', path: '/b', title: 'B', sessionIds: ['b1'] };
+  const c = { workspaceId: 'C', path: '/c', title: 'C', sessionIds: [] };
+  const items = [a, b, c];
+  const snapshot = [...items];
+
+  const manual = orderWorkspaces(items, list, 'manual', []);
+  assert.deepEqual(manual.map((w) => w.workspaceId), ['A', 'B', 'C'], 'manual keeps host order');
+  assert.notEqual(manual, items, 'manual returns a new array');
+  const unknown = orderWorkspaces(items, list, 'unknown', []);
+  assert.deepEqual(unknown.map((w) => w.workspaceId), ['A', 'B', 'C'], 'unknown orderBy falls back to manual');
+  assert.deepEqual(unknown, snapshot, 'unknown order equals the input order');
+
+  const updated = orderWorkspaces(items, list, 'updated', []);
+  assert.deepEqual(updated.map((w) => w.workspaceId), ['B', 'A', 'C'],
+    'updated sorts newest visible session first, no-session workspace last');
+
+  const tied = [
+    { workspaceId: 'D', path: '/d', title: 'D', sessionIds: ['t1'] },
+    { workspaceId: 'E', path: '/e', title: 'E', sessionIds: ['t2'] },
+    { workspaceId: 'F', path: '/f', title: 'F', sessionIds: ['t3'] },
+  ];
+  assert.deepEqual(orderWorkspaces(tied, list, 'updated', []).map((w) => w.workspaceId), ['F', 'D', 'E'],
+    'equal recency falls back to host order');
+
+  assert.deepEqual(items, snapshot, 'input array is not mutated');
+  assert.deepEqual(manual, snapshot, 'returned manual order matches the input order');
 });
 
 test('localSessionMatches: stored-title-only matching, empty title never matches', () => {

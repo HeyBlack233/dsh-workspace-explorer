@@ -51,6 +51,18 @@ Release Date: TBD
   Session in it exactly like the native action, and reports a registration
   failure inline. When the composition has no directory flow, the button is
   hidden exactly like the native sidebar's.
+- The **Workspaces** group header also carries a **View options** button — the
+  same slider artwork as the native sidebar's — just left of the Add workspace
+  button. It opens a menu with a single **Order by** group (labels match the
+  native sidebar: View options / 视图选项, Order by / 排序方式, Manual /
+  手动排序, Last updated / 最近更新) offering two choices: **Manual** (the
+  default) keeps the Host order, while **Last updated** sorts by each
+  Workspace's most recent visible Session's `updatedAt` in descending order,
+  excluding archived, blank, and subagent Sessions; Workspaces with no visible
+  Session sort last, and equal timestamps fall back to the Host order. The
+  choice affects only the Workspaces group (search results included) — the
+  Sessions group keeps its own order — and lives in page memory only, so
+  reloading or reopening the page returns to Manual.
 - Search box with a clear button, auto-focus on open, a 500-code-unit limit, and
   a placeholder of `Search workspaces / sessions` (Chinese: `搜索工作区 / 会话`).
 - Two collapsible result groups — **Workspaces** and **Sessions** — each showing

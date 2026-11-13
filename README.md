@@ -53,6 +53,20 @@ opens a new Session in it like the native action; a registration failure is
 reported inline. The button is hidden when the composition has no directory
 flow, matching the native sidebar.
 
+Just left of the Add workspace button, the **Workspaces** group header also
+carries a **View options** button — the same slider artwork as the native
+sidebar's. It opens a menu with a single **Order by** group:
+
+- **Manual** (default) — keeps the Host order
+- **Last updated** — sorts by each Workspace's most recent visible Session's
+  `updatedAt` in descending order (archived, blank, and subagent-origin
+  Sessions excluded); Workspaces with no visible Session sort last, and ties
+  fall back to the Host order
+
+The choice affects only the Workspaces group (search results included); the
+Sessions group keeps its own order. It lives in page memory only, so reloading
+or reopening the page returns to Manual.
+
 ## Requirement
 
 - DSH Web with bundled client plugins enabled (the client module is loaded by

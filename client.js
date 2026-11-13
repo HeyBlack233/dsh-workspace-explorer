@@ -25,6 +25,10 @@ window.__ModuleLoader__.load({
       'group.count': '{count}',
       'group.addWorkspace': 'Add workspace',
       'group.addWorkspaceFailed': 'Could not add workspace: {message}',
+      'viewOptions.label': 'View options',
+      'orderBy.label': 'Order by',
+      'orderBy.manual': 'Manual',
+      'orderBy.updated': 'Last updated',
       'state.loading': 'Loading…',
       'row.openWorkspace': 'Open workspace {name}',
       'row.openSession': 'Open session {title}',
@@ -45,6 +49,10 @@ window.__ModuleLoader__.load({
       'group.count': '{count}',
       'group.addWorkspace': '添加工作区',
       'group.addWorkspaceFailed': '无法添加工作区：{message}',
+      'viewOptions.label': '视图选项',
+      'orderBy.label': '排序方式',
+      'orderBy.manual': '手动排序',
+      'orderBy.updated': '最近更新',
       'state.loading': '加载中…',
       'row.openWorkspace': '打开工作区 {name}',
       'row.openSession': '打开会话 {title}',
@@ -165,6 +173,46 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Most recently updated visible Session of a Workspace, or undefined when
+     * it has none. Only numeric `updatedAt` values count; archived, blank,
+     * and subagent Sessions are invisible to the ordering.
+     */
+    function latestSessionUpdatedAt(workspace, list, archivedSessionIds) {
+      const archived = new Set(archivedSessionIds ?? []);
+      let latest;
+      for (const sessionId of workspace.sessionIds ?? []) {
+        const summary = list.byId[sessionId];
+        if (!isVisibleSummary(summary, archived)) continue;
+        if (typeof summary.updatedAt !== 'number') continue;
+        if (latest === undefined || summary.updatedAt > latest) latest = summary.updatedAt;
+      }
+      return latest;
+    }
+
+    /**
+     * Workspaces in Host order, or most-recently-updated first when `orderBy`
+     * is 'updated'. Workspaces without visible Sessions trail behind; ties
+     * keep the original Host order. Always returns a new array.
+     */
+    function orderWorkspaces(items, list, orderBy, archivedSessionIds) {
+      if (orderBy !== 'updated') return items.slice();
+      const latest = new Map();
+      const index = new Map();
+      items.forEach((workspace, i) => {
+        latest.set(workspace, latestSessionUpdatedAt(workspace, list, archivedSessionIds));
+        index.set(workspace, i);
+      });
+      return items.slice().sort((a, b) => {
+        const la = latest.get(a);
+        const lb = latest.get(b);
+        if (la === lb) return index.get(a) - index.get(b);
+        if (la === undefined) return 1;
+        if (lb === undefined) return -1;
+        return la > lb ? -1 : 1;
+      });
+    }
+
+    /**
      * Top Session of a Workspace: among its visible members, pinned Sessions
      * first by their index in `pinnedSessionIds` (most recently pinned first),
      * then by recency; `undefined` when no visible member exists.
@@ -269,7 +317,7 @@ window.__ModuleLoader__.load({
      * contains the query, and Sessions from local title matches merged with
      * Host content matches — never a session that matched only by workspace name.
      */
-    function deriveView({ list, workspaces, query, content, limit, ungroupedLabel = '', untitledLabel = 'Untitled' }) {
+    function deriveView({ list, workspaces, query, content, limit, orderBy = 'manual', ungroupedLabel = '', untitledLabel = 'Untitled' }) {
       const normalized = sanitizeQuery(query).trim();
       const items = workspaces.items ?? [];
       const archivedSessionIds = workspaces.archivedSessionIds ?? [];
@@ -294,7 +342,7 @@ window.__ModuleLoader__.load({
 
       if (normalized === '') {
         return {
-          workspaces: workspaceRows(items),
+          workspaces: workspaceRows(orderWorkspaces(items, list, orderBy, archivedSessionIds)),
           sessions: sessionRows(recentSessions(list, archivedSessionIds, limit)),
           hasMore: false,
         };
@@ -309,7 +357,12 @@ window.__ModuleLoader__.load({
       );
       const capped = merged.slice(0, limit);
       return {
-        workspaces: workspaceRows(items.filter((workspace) => workspaceName(workspace).toLowerCase().includes(q))),
+        workspaces: workspaceRows(orderWorkspaces(
+          items.filter((workspace) => workspaceName(workspace).toLowerCase().includes(q)),
+          list,
+          orderBy,
+          archivedSessionIds,
+        )),
         sessions: sessionRows(capped),
         hasMore: content.hasMore === true || merged.length > limit,
       };
@@ -609,6 +662,76 @@ window.__ModuleLoader__.load({
       h('path', { key: 'project-add-vertical', d: 'M12.1492 6.89758L12.1492 2.10642', stroke: 'currentColor' }),
     ]);
 
+    // View options trigger artwork for the Workspaces group header, matching
+    // the native sidebar's sliders icon: two horizontal tracks with a knob
+    // each, currentColor.
+    const viewOptionsGlyph = h('svg', {
+      viewBox: '0 0 16 16',
+      width: 16,
+      height: 16,
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: 1,
+      strokeLinecap: 'round',
+      'aria-hidden': true,
+      focusable: false,
+    }, [
+      h('path', { d: 'M2.3 5h5.85M12.05 5h1.65' }),
+      h('circle', { cx: 9.95, cy: 5, r: 1.45 }),
+      h('path', { d: 'M2.3 11h1.65M7.85 11h5.85' }),
+      h('circle', { cx: 5.75, cy: 11, r: 1.45 }),
+    ]);
+
+    // Order-by menu item artwork, matching the native sidebar: Manual uses a
+    // chevrons glyph, Last updated a clock.
+    const orderByManualGlyph = h('svg', {
+      viewBox: '0 0 16 16',
+      width: 16,
+      height: 16,
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: 1,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      'aria-hidden': true,
+      focusable: false,
+    }, [
+      h('path', { d: 'M5.1 6L8 3.1L10.9 6' }),
+      h('path', { d: 'M5.1 10L8 12.9L10.9 10' }),
+    ]);
+
+    const orderByUpdatedGlyph = h('svg', {
+      viewBox: '0 0 16 16',
+      width: 16,
+      height: 16,
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: 1,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      'aria-hidden': true,
+      focusable: false,
+    }, [
+      h('path', { d: 'M8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2C4.68629 2 2 4.68629 2 8C2 11.3137 4.68629 14 8 14Z' }),
+      h('path', { d: 'M8 4.31V8.46L11 10.08' }),
+    ]);
+
+    // Check mark on the selected Order-by item.
+    const viewMenuCheckGlyph = h('svg', {
+      viewBox: '0 0 16 16',
+      width: 14,
+      height: 14,
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: 1,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      'aria-hidden': true,
+      focusable: false,
+    }, [
+      h('path', { d: 'M2.25 8.5L5.49732 11.7473C5.90519 12.1552 6.57263 12.1344 6.95426 11.7018L13.75 4' }),
+    ]);
+
     // ---------------------------------------------------------------------
     // Workspaces group header: native Add workspace action.
     // ---------------------------------------------------------------------
@@ -697,6 +820,150 @@ window.__ModuleLoader__.load({
     }
 
     // ---------------------------------------------------------------------
+    // Workspaces group header: View options (Order by) menu.
+    // ---------------------------------------------------------------------
+
+    // Order-by choices, in display order. `manual` keeps the Host order;
+    // `updated` re-sorts by each Workspace's newest visible Session.
+    const ORDER_BY_OPTIONS = [
+      { value: 'manual', labelKey: 'orderBy.manual' },
+      { value: 'updated', labelKey: 'orderBy.updated' },
+    ];
+
+    /**
+     * View options trigger shown left of the Add workspace button. It opens a
+     * small Order-by menu; the selection lives in page state and resets when
+     * the page remounts. Outside pointerdown, Escape, and focus leaving the
+     * wrapper close the menu; ArrowUp/Down cycle the two items.
+     */
+    function ViewOptionsMenu({ t, orderBy, onPick }) {
+      const [open, setOpen] = React.useState(false);
+      const wrapRef = React.useRef(null);
+      const triggerRef = React.useRef(null);
+
+      const close = () => setOpen(false);
+
+      const pick = (value) => {
+        if (typeof onPick === 'function') onPick(value);
+        close();
+        if (triggerRef.current !== null && typeof triggerRef.current.focus === 'function') {
+          triggerRef.current.focus();
+        }
+      };
+
+      const toggle = (event) => {
+        event.stopPropagation();
+        setOpen((prev) => !prev);
+      };
+
+      // While open, close on outside pointerdown and on Escape. Both listeners
+      // are removed when the menu closes or the component unmounts.
+      React.useEffect(() => {
+        if (!open) return;
+        const onPointerDown = (event) => {
+          const wrap = wrapRef.current;
+          if (wrap !== null && typeof wrap.contains === 'function' && wrap.contains(event.target)) return;
+          setOpen(false);
+        };
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return;
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+          if (triggerRef.current !== null && typeof triggerRef.current.focus === 'function') {
+            triggerRef.current.focus();
+          }
+        };
+        document.addEventListener('pointerdown', onPointerDown);
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+          document.removeEventListener('pointerdown', onPointerDown);
+          document.removeEventListener('keydown', onKeyDown);
+        };
+      }, [open]);
+
+      // Focus the selected item (first item as a fallback) when the menu opens.
+      React.useEffect(() => {
+        if (!open) return;
+        const wrap = wrapRef.current;
+        const menu = wrap === null ? null : wrap.querySelector('.dwe-view-menu');
+        if (menu === null) return;
+        let target = menu.querySelector('[data-order-by][aria-checked="true"]');
+        if (target === null) target = menu.querySelector('[data-order-by]');
+        if (target !== null && typeof target.focus === 'function') target.focus();
+      }, [open]);
+
+      const onMenuKeyDown = (event) => {
+        const wrap = wrapRef.current;
+        const menu = wrap === null ? null : wrap.querySelector('.dwe-view-menu');
+        if (menu === null) return;
+        const items = Array.from(menu.querySelectorAll('[data-order-by]'));
+        if (items.length === 0) return;
+        const current = items.findIndex((item) => item === document.activeElement);
+        let next = current;
+        if (event.key === 'ArrowDown') next = current === -1 ? 0 : (current + 1) % items.length;
+        else if (event.key === 'ArrowUp') next = current === -1 ? items.length - 1 : (current - 1 + items.length) % items.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = items.length - 1;
+        else return;
+        event.preventDefault();
+        items[next].focus();
+      };
+
+      // Focus leaving the wrapper (Tab away) closes the menu; focus moves
+      // between the trigger and the items stay inside, so they are unaffected.
+      const onWrapBlur = (event) => {
+        if (!open) return;
+        const wrap = wrapRef.current;
+        const next = event.relatedTarget;
+        if (wrap !== null && (next === null || typeof wrap.contains !== 'function' || !wrap.contains(next))) {
+          setOpen(false);
+        }
+      };
+
+      return h('div', { ref: wrapRef, className: 'dwe-group-view-wrap', onBlur: onWrapBlur },
+        h('button', {
+          ref: triggerRef,
+          type: 'button',
+          className: 'dwe-group-view',
+          'aria-label': t('viewOptions.label'),
+          title: t('viewOptions.label'),
+          'aria-haspopup': 'menu',
+          'aria-expanded': open,
+          'data-view-options-trigger': '',
+          onClick: toggle,
+        }, viewOptionsGlyph),
+        !open ? null : h('div', {
+          className: 'dwe-view-menu',
+          role: 'menu',
+          'aria-label': t('orderBy.label'),
+          onKeyDown: onMenuKeyDown,
+        },
+          h('div', { className: 'dwe-view-menu-label' }, t('orderBy.label')),
+          ORDER_BY_OPTIONS.map((option) => {
+            const selected = orderBy === option.value;
+            return h('button', {
+              key: option.value,
+              type: 'button',
+              role: 'menuitemradio',
+              'aria-checked': selected,
+              className: 'dwe-view-menu-item',
+              'data-order-by': option.value,
+              onClick: () => pick(option.value),
+            },
+              h('span', { className: 'dwe-view-menu-item-icon', 'aria-hidden': true },
+                option.value === 'manual' ? orderByManualGlyph : orderByUpdatedGlyph),
+              h('span', { className: 'dwe-view-menu-item-label' }, t(option.labelKey)),
+              selected
+                ? h('span', { className: 'dwe-view-menu-check', 'aria-hidden': true }, viewMenuCheckGlyph)
+                : null,
+            );
+          }),
+        ),
+      );
+    }
+
+    // ---------------------------------------------------------------------
     // Page.
     // ---------------------------------------------------------------------
 
@@ -710,6 +977,9 @@ window.__ModuleLoader__.load({
       const ws = useWorkspaces((s) => s);
       const [query, setQuery] = React.useState('');
       const [remote, setRemote] = React.useState({ query: '', status: 'idle', items: [], hasMore: false });
+      // Workspaces group ordering; defaults to Host order and resets when the
+      // page remounts (no persistence).
+      const [orderBy, setOrderBy] = React.useState('manual');
       // Expansion overrides keyed by the normalized query; {} means auto:
       // a group is expanded iff it has items, unless the user toggled it for
       // the current query. Re-derived per query, not frozen at mount.
@@ -764,9 +1034,10 @@ window.__ModuleLoader__.load({
         query,
         content,
         limit: searchResultLimit,
+        orderBy,
         ungroupedLabel,
         untitledLabel,
-      }), [list, ws, query, content, searchResultLimit, ungroupedLabel, untitledLabel]);
+      }), [list, ws, query, content, searchResultLimit, orderBy, ungroupedLabel, untitledLabel]);
 
       const autoExpanded = {
         workspaces: view.workspaces.length > 0,
@@ -789,6 +1060,7 @@ window.__ModuleLoader__.load({
           label: t('group.workspaces'),
           items: view.workspaces,
           action: addWorkspace,
+          leadingAction: h(ViewOptionsMenu, { t, orderBy, onPick: setOrderBy }),
           renderRow: (row) => h(WorkspaceRow, { key: row.workspaceId, row, t, openSession, openWorkspace, startSession, openWorkspaceMenu, closeWorkspaceMenu, useWorkspaceMenuOpen, useWorkspaceAccess }),
         },
         {
@@ -838,6 +1110,7 @@ window.__ModuleLoader__.load({
               expanded: expanded[group.key],
               onToggle: () => toggleGroup(group.key),
               action: group.action,
+              leadingAction: group.leadingAction,
               renderRow: group.renderRow,
             })),
             view.hasMore
@@ -849,14 +1122,17 @@ window.__ModuleLoader__.load({
     }
 
     // One collapsible group: header row (chevron, label, count) + optional
-    // trailing action + body of rows. The action's overlay/notice render as
-    // siblings of the row so its dialog never participates in row layout.
-    function GroupSection({ group, t, expanded, onToggle, renderRow, action }) {
+    // leading and trailing actions + body of rows. The action's overlay/notice
+    // render as siblings of the row so its dialog never participates in row
+    // layout. `leadingAction` (e.g. View options) sits left of the trailing
+    // action (e.g. Add workspace).
+    function GroupSection({ group, t, expanded, onToggle, renderRow, action, leadingAction }) {
       const count = group.items.length;
       const actionButton = action?.button ?? null;
+      const hasActions = (leadingAction !== undefined && leadingAction !== null) || actionButton !== null;
       return h('section', { className: 'dwe-group' },
         h('div', {
-          className: actionButton === null ? 'dwe-group-head' : 'dwe-group-head dwe-group-head-with-action',
+          className: hasActions ? 'dwe-group-head dwe-group-head-with-action' : 'dwe-group-head',
         },
           h('button', {
             type: 'button',
@@ -880,9 +1156,12 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dwe-group-label' }, group.label),
             h('span', { className: 'dwe-group-count' }, t('group.count', { count })),
           ),
-          actionButton === null
+          !hasActions
             ? null
-            : h('div', { className: 'dwe-group-actions' }, actionButton),
+            : h('div', { className: 'dwe-group-actions' },
+                leadingAction === undefined || leadingAction === null ? null : leadingAction,
+                actionButton,
+              ),
         ),
         action?.notice ?? null,
         action?.overlay ?? null,
@@ -1122,17 +1401,20 @@ window.__ModuleLoader__.load({
         cursor: pointer;
       }
       .dwe-group-head-with-action .dwe-group-header {
-        padding-right: 40px;
+        padding-right: 72px;
       }
       .dwe-group-actions {
         flex: none;
         display: inline-flex;
         align-items: center;
+        gap: 4px;
         padding: 0 4px 0 0;
       }
       /* Native sidebar header-button geometry: 28px hit area, 16px artwork,
-         label-secondary colour, subtle hover fill. */
-      .dwe-group-add {
+         label-secondary colour, subtle hover fill. The View options trigger
+         shares the same geometry. */
+      .dwe-group-add,
+      .dwe-group-view {
         flex: none;
         display: inline-flex;
         align-items: center;
@@ -1146,13 +1428,83 @@ window.__ModuleLoader__.load({
         color: var(--dsw-alias-label-secondary, currentColor);
         cursor: pointer;
       }
-      .dwe-group-add:hover {
+      .dwe-group-add:hover,
+      .dwe-group-view:hover {
         background: var(--dsw-alias-interactive-bg-hover, transparent);
         color: var(--dsw-alias-label-primary, inherit);
       }
       .dwe-group-add:disabled {
         opacity: 0.55;
         cursor: default;
+      }
+      .dwe-group-view-wrap {
+        position: relative;
+        display: inline-flex;
+      }
+      .dwe-view-menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        right: 0;
+        z-index: 40;
+        min-width: 176px;
+        box-sizing: border-box;
+        padding: 4px;
+        border: .5px solid var(--dsw-alias-border-l3, transparent);
+        border-radius: var(--dsw-radius-md, 8px);
+        background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-layer-1, transparent));
+        box-shadow:
+          0 0 0 .5px color-mix(in srgb, var(--dsw-static-neutral-500, #000) 4%, transparent),
+          0 3px 8px color-mix(in srgb, var(--dsw-static-neutral-500, #000) 4%, transparent),
+          0 0 20px color-mix(in srgb, var(--dsw-static-neutral-500, #000) 5%, transparent);
+      }
+      .dwe-view-menu-label {
+        padding: 3px 8px;
+        font: var(--dsw-font-xxs-12);
+        color: var(--dsw-alias-label-secondary, currentColor);
+        cursor: default;
+      }
+      .dwe-view-menu-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        box-sizing: border-box;
+        width: 100%;
+        height: 30px;
+        padding: 4px 8px;
+        border: none;
+        border-radius: var(--dsw-radius-sm, 8px);
+        background: transparent;
+        color: var(--dsw-alias-label-primary, inherit);
+        font: var(--dsw-font-s-14);
+        text-align: left;
+        cursor: pointer;
+      }
+      .dwe-view-menu-item:hover {
+        background: var(--dsw-alias-interactive-bg-hover, transparent);
+      }
+      .dwe-view-menu-item:focus-visible {
+        outline: 2px solid var(--dsw-alias-state-business-primary);
+        outline-offset: -2px;
+      }
+      .dwe-view-menu-item-icon {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        color: var(--dsw-alias-label-secondary, currentColor);
+      }
+      .dwe-view-menu-item-label {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .dwe-view-menu-check {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        margin-left: auto;
+        color: var(--dsw-alias-state-business-primary, currentColor);
       }
       .dwe-group-notice {
         margin: 0 4px 10px;
@@ -1301,7 +1653,8 @@ window.__ModuleLoader__.load({
         outline-offset: 2px;
       }
       .dwe-row-action:focus-visible,
-      .dwe-group-add:focus-visible {
+      .dwe-group-add:focus-visible,
+      .dwe-group-view:focus-visible {
         outline: 2px solid var(--dsw-alias-state-business-primary);
         outline-offset: -2px;
       }
@@ -1409,6 +1762,8 @@ window.__ModuleLoader__.load({
         localSessionMatches,
         mergeSessionResults,
         recentSessions,
+        latestSessionUpdatedAt,
+        orderWorkspaces,
         selectTopSessionId,
         deriveView,
         nextExpansion,
